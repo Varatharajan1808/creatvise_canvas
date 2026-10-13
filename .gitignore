@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Production build
+dist/
+
+# Local scripts / audit artifacts (not part of the app)
+*.mjs
+.audit-out/
+
+# Environment & OS
+.env
+.env.*
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor (optional local settings)
+.vscode/
+.idea/

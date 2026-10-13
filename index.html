@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Creatvise Canvas - WebGPU Studio</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%235865F2'><path d='M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5'/></svg>" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/src/style.css" />
+    <style>
+      /* Critical pre-render styles: dark theme & prevent SVG blowout */
+      html, body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background-color: #0c0e12;
+        color: #f0f2f5;
+        overflow: hidden;
+        font-family: "Plus Jakarta Sans", Inter, -apple-system, sans-serif;
+      }
+      svg {
+        max-width: 24px;
+        max-height: 24px;
+        display: inline-block;
+        vertical-align: middle;
+      }
+      .brand-logo svg {
+        width: 18px;
+        height: 18px;
+        max-width: 18px;
+        max-height: 18px;
+      }
+      /* Sleek app preloader screen */
+      #app-loader {
+        position: fixed;
+        inset: 0;
+        z-index: 999999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background-color: #0c0e12;
+        transition: opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.35s;
+      }
+      #app-loader.loaded {
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+      }
+      .loader-content {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 16px;
+      }
+      .loader-logo {
+        width: 52px;
+        height: 52px;
+        border-radius: 14px;
+        background: linear-gradient(135deg, #4f6bff 0%, #3b82f6 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #fff;
+        box-shadow: 0 8px 24px rgba(79, 107, 255, 0.45);
+        animation: loaderGlow 2s ease-in-out infinite;
+      }
+      .loader-logo svg {
+        width: 28px;
+        height: 28px;
+        max-width: 28px;
+        max-height: 28px;
+      }
+      .loader-brand {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .loader-title {
+        font-size: 17px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        background: linear-gradient(#fff 30%, #c4cbdf 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+      .loader-tag {
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        background: rgba(79, 107, 255, 0.16);
+        color: #7088ff;
+        border: 1px solid rgba(79, 107, 255, 0.25);
+        padding: 2px 6px;
+        border-radius: 4px;
+      }
+      .loader-bar {
+        width: 130px;
+        height: 3px;
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 3px;
+        overflow: hidden;
+        margin-top: 4px;
+        position: relative;
+      }
+      .loader-fill {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 40%;
+        border-radius: 3px;
+        background: linear-gradient(90deg, #4f6bff, #60a5fa);
+        animation: loaderAnim 1.4s ease-in-out infinite;
+      }
+      @keyframes loaderGlow {
+        0%, 100% { transform: scale(1); box-shadow: 0 8px 24px rgba(79, 107, 255, 0.4); }
+        50% { transform: scale(1.04); box-shadow: 0 12px 30px rgba(79, 107, 255, 0.65); }
+      }
+      @keyframes loaderAnim {
+        0% { left: -40%; }
+        100% { left: 100%; }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- App Loading Screen -->
+    <div id="app-loader" aria-label="Loading Creatvise Canvas">
+      <div class="loader-content">
+        <div class="loader-logo">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+          </svg>
+        </div>
+        <div class="loader-brand">
+          <span class="loader-title">Creatvise</span>
+          <span class="loader-tag">Canvas</span>
+        </div>
+        <div class="loader-bar">
+          <div class="loader-fill"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="app">
+      <header id="top">
+        <div class="brand">
+          <div class="brand-logo">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+            </svg>
+          </div>
+          <div class="brand-text">
+            <strong class="brand-title">Creatvise</strong>
+            <span class="brand-badge">Canvas</span>
+          </div>
+        </div>
+
+        <div class="top-divider"></div>
+
+        <div class="tool-group">
+          <button id="btn-open" class="btn-tool" title="Open File(s)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            <span>Open file</span>
+          </button>
+          <button id="btn-open-folder" class="btn-tool" title="Open a folder of design files (including subfolders)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
+            <span>Open folder</span>
+          </button>
+          <button id="btn-sample" class="btn-tool" title="Load Sample PSD Demo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+            <span>Sample PSD</span>
+          </button>
+          <button id="btn-sample-ai" class="btn-tool" title="Load sample .ai from public/ (sample.ai / DarkTech_Screen.ai)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+            <span>Sample AI</span>
+          </button>
+        </div>
+
+        <div class="top-divider"></div>
+
+        <div class="tool-group">
+          <button id="btn-undo" class="btn-tool" title="Undo change (Ctrl+Z)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
+            <span>Undo</span>
+          </button>
+          <button id="btn-redo" class="btn-tool" title="Redo change (Ctrl+Y)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13"/></svg>
+            <span>Redo</span>
+          </button>
+          <button id="btn-duplicate" class="btn-tool" title="Duplicate selected layer (Ctrl+D)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            <span>Duplicate</span>
+          </button>
+          <button id="btn-delete" class="btn-tool btn-danger-hover" title="Delete selected layer (Delete)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>
+            <span>Delete</span>
+          </button>
+        </div>
+
+        <div class="top-divider"></div>
+
+        <div class="tool-group">
+          <button id="btn-fit" class="btn-tool" title="Fit All Documents to Canvas">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+            <span>Fit</span>
+          </button>
+          <button id="btn-clear" class="btn-tool btn-clear-work" title="Remove all files and clear saved workspace">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+            <span>Clear saved</span>
+          </button>
+        </div>
+
+        <span class="grow"></span>
+
+        <div class="save-status-wrap">
+          <span class="save-dot" id="save-dot"></span>
+          <span id="save-state"></span>
+        </div>
+
+        <button id="btn-shortcuts" class="btn-tool btn-icon-only" title="Keyboard Shortcuts & Shortcuts Help">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01"/></svg>
+        </button>
+
+        <button id="btn-export" class="primary btn-export" title="Export the selected document (.psd or .ai)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span>Export</span>
+        </button>
+      </header>
+
+      <aside id="layers"></aside>
+
+      <main id="stage">
+        <div id="canvas-dots" aria-hidden="true"></div>
+        <div id="gl"></div>
+        <div id="overlay">
+          <div id="selbox"></div>
+          <div id="labels"></div>
+        </div>
+
+        <!-- Floating Stage Zoom Controls -->
+        <div id="stage-controls">
+          <button id="zoom-out-btn" class="stage-ctrl-btn" title="Zoom Out (-)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+          </button>
+          <span id="stage-zoom-badge" title="Click to reset zoom to 100%">100%</span>
+          <button id="zoom-in-btn" class="stage-ctrl-btn" title="Zoom In (+)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+          </button>
+          <span class="stage-ctrl-sep"></span>
+          <button id="zoom-fit-btn" class="stage-ctrl-btn" title="Fit to View">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+          </button>
+          <button id="zoom-100-btn" class="stage-ctrl-btn" title="Reset Zoom to 100%">1:1</button>
+        </div>
+
+        <div id="empty">
+          <div class="empty-card">
+            <div class="empty-icon-wrapper">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <line x1="12" y1="18" x2="12" y2="12"/>
+                <line x1="9" y1="15" x2="15" y2="15"/>
+              </svg>
+            </div>
+            <h3>Drop your design files here</h3>
+            <p>Fast GPU-accelerated viewer and non-destructive layer editor right in your browser.</p>
+            <div class="empty-actions">
+              <button id="empty-open" class="btn-primary-hero" title="Choose individual file(s)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <span>Browse Files</span>
+              </button>
+              <button id="empty-folder" class="btn-secondary-hero" title="Open a folder of design files">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
+                <span>Open Folder</span>
+              </button>
+            </div>
+            <div class="empty-features">
+              <span class="feat-tag">✦ WebGPU Accelerated</span>
+              <span class="feat-tag">✦ Layer Inspection</span>
+              <span class="feat-tag">✦ Live Text & Shape Edit</span>
+              <span class="feat-tag">✦ Auto Save</span>
+            </div>
+          </div>
+        </div>
+
+        <div id="toast"></div>
+      </main>
+
+      <aside id="props"></aside>
+
+      <footer id="status">
+        <div class="status-left" id="status-left"></div>
+        <div class="status-right" id="status-right">
+          <span class="shortcut-tip"><kbd>Space</kbd>+Drag Pan</span>
+          <span class="shortcut-tip"><kbd>Wheel</kbd> Zoom</span>
+          <span class="shortcut-tip"><kbd>Ctrl+Z</kbd> Undo</span>
+          <span class="shortcut-tip"><kbd>Del</kbd> Delete</span>
+        </div>
+      </footer>
+    </div>
+
+    <input type="file" id="file" accept=".psd,.ai,.indd" multiple hidden />
+    <input type="file" id="folder" webkitdirectory directory multiple hidden />
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

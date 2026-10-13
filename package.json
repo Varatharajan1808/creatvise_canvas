@@ -1,0 +1,36 @@
+{
+  "name": "creatvise-canvas",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "npm run build && vite",
+    "build": "tsc --noEmit && vite build",
+    "build:watch": "vite build --watch",
+    "preview": "vite preview",
+    "test:psd": "tsx scripts/psd-roundtrip.ts && tsx scripts/psd-stale-imageData.ts && tsx scripts/psd-fidelity.test.ts && tsx scripts/psd-layer-edit.test.ts && tsx scripts/psd-text-move.test.ts && tsx scripts/psd-selection-preview.test.ts && tsx scripts/psd-file-base-overlay.test.ts && tsx scripts/psd-preview-dirty.test.ts && tsx scripts/psd-ghost-regression.test.ts && tsx scripts/psd-footprint-patch.test.ts && tsx scripts/psd-export-fidelity.test.ts && tsx scripts/psd-export-nondestructive.test.ts && tsx scripts/psd-text-position.test.ts && tsx scripts/psd-history-undo.test.ts && tsx scripts/psd-doc-history.test.ts && tsx scripts/psd-mask-blend.test.ts && tsx scripts/psd-clipping.test.ts && tsx scripts/psd-composite-rule.test.ts && tsx scripts/canvas-hit-test.test.ts && tsx scripts/psd-adjustment.test.ts && tsx scripts/psd-adjustment-2b.test.ts && tsx scripts/psd-adjustment-curves.test.ts && tsx scripts/psd-adjustment-huesat.test.ts && tsx scripts/psd-adjustment-colorbalance.test.ts && tsx scripts/psd-adjustment-blackandwhite.test.ts",
+    "psd:inventory": "tsx scripts/psd-feature-inventory.ts",
+    "psd:baseline": "node --expose-gc --import tsx scripts/psd-compositor-baseline.ts",
+    "psd:bench": "tsx scripts/psd-adjustment-benchmark.ts",
+    "test:folder": "tsx scripts/folder-import.test.ts",
+    "test:ai": "tsx scripts/ai-export-roundtrip.test.ts"
+  },
+  "dependencies": {
+    "ag-psd": "^31.0.3",
+    "pako": "^3.0.2",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^4.10.38",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^26.6.5",
+    "@types/pako": "^2.0.4",
+    "@types/three": "^0.186.0",
+    "happy-dom": "^21.0.1",
+    "playwright": "^1.64.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4"
+  }
+}
