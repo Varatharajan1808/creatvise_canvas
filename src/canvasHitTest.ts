@@ -27,6 +27,21 @@ export interface CanvasHitTestContext {
 }
 
 /**
+ * Checks whether a doc-space point hits a layer, respecting its bounding box, rotation, and alpha.
+ */
+export function isPointInLayer(n: Node, px: number, py: number): boolean {
+  if (!effVisible(n) || effOpacity(n) <= 0) return false;
+  const th = (n.rotation * Math.PI) / 180;
+  const dx = px - (n.x + n.w / 2);
+  const dy = py - (n.y + n.h / 2);
+  const lx = dx * Math.cos(th) + dy * Math.sin(th) + n.w / 2;
+  const ly = -dx * Math.sin(th) + dy * Math.cos(th) + n.h / 2;
+  if (lx < 0 || ly < 0 || lx >= n.w || ly >= n.h) return false;
+  if (!n.canvas) return true;
+  return readCanvasAlpha(n.canvas, (lx * n.canvas.width) / n.w, (ly * n.canvas.height) / n.h) > ALPHA_HIT;
+}
+
+/**
  * Layer under screen point using current top-first + alpha rules (same as canvas click select).
  */
 export function hitTestCanvasLayer(ctx: CanvasHitTestContext, sx: number, sy: number): Node | null {
@@ -35,15 +50,8 @@ export function hitTestCanvasLayer(ctx: CanvasHitTestContext, sx: number, sy: nu
     const p = ctx.screenToDoc(d, sx, sy);
     const list = leaves(d).reverse();
     for (const n of list) {
-      if (!isCanvasPickTarget(d, n) || !effVisible(n) || effOpacity(n) <= 0) continue;
-      const th = (n.rotation * Math.PI) / 180;
-      const dx = p.x - (n.x + n.w / 2);
-      const dy = p.y - (n.y + n.h / 2);
-      const lx = dx * Math.cos(th) + dy * Math.sin(th) + n.w / 2;
-      const ly = -dx * Math.sin(th) + dy * Math.cos(th) + n.h / 2;
-      if (lx < 0 || ly < 0 || lx >= n.w || ly >= n.h) continue;
-      const c = n.canvas!;
-      if (readCanvasAlpha(c, (lx * c.width) / n.w, (ly * c.height) / n.h) > ALPHA_HIT) return n;
+      if (!isCanvasPickTarget(d, n)) continue;
+      if (isPointInLayer(n, p.x, p.y)) return n;
     }
   }
   return null;

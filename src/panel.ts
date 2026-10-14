@@ -1,6 +1,7 @@
+import { escapeHtml as esc } from './utils';
 import { type Doc, type Node, docOf, nodeBounds, walk, effVisible } from './model';
-import { getTextInfo, getShapeColor, getShapeBorderInfo, shapeColorBlockReason, rgbToHex } from './edit';
-import { canDuplicateLayer, capabilitiesForDoc, opacityExportsToFile } from './formatCaps';
+import { getTextInfo, getShapeColor, getShapeBorderInfo, getBrightnessContrastInfo, shapeColorBlockReason, rgbToHex } from './edit';
+import { canDeleteLayer, canDuplicateLayer, capabilitiesForDoc, opacityExportsToFile } from './formatCaps';
 
 export interface PanelState {
   docs: Doc[];
@@ -17,7 +18,7 @@ export interface PanelHandlers {
   closeDoc(d: Doc): void;
   setOpacityPreview(n: Node, v: number): void;
   commitOpacity(n: Node, from: number, to: number): void;
-  setPosition(n: Node, x: number, y: number): void;
+  editPosition(n: Node, x: string, y: string, commit: boolean): void;
   setTransform(n: Node, t: { w?: number; h?: number; rotation?: number }): void;
   editText(n: Node, patch: {
     text?: string;
@@ -30,6 +31,7 @@ export interface PanelHandlers {
   }, commit: boolean): void;
   editShapeColor(n: Node, hex: string, commit: boolean): void;
   editShapeBorder(n: Node, patch: { enabled?: boolean; width?: number; color?: string }, commit: boolean): void;
+  editBrightnessContrast(n: Node, patch: { brightness?: number; contrast?: number; useLegacy?: boolean }, commit: boolean): void;
   replaceImage?(n: Node, file: File): void;
   duplicate?(n: Node): void;
   showUnsupportedDoc?(doc: Doc): void;
@@ -53,7 +55,6 @@ const ICON = {
   shape: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"/></svg>',
 };
 
-const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 
 function rows(
   nodes: Node[],
@@ -64,6 +65,7 @@ function rows(
   doc: Doc,
 ) {
   const allowDup = canDuplicateLayer(doc);
+  const allowDel = canDeleteLayer(doc);
   // PSD order is bottom -> top; the panel shows top first
   for (const n of [...nodes].reverse()) {
     ids.set(n.id, n);
@@ -71,6 +73,9 @@ function rows(
     const sel = state.selected === n ? ' sel' : '';
     const dupBtn = allowDup
       ? `<button class="ibtn" data-act="dup" aria-label="Duplicate layer" title="Duplicate layer (Ctrl+D)">${ICON.copy}</button>`
+      : '';
+    const delBtn = allowDel
+      ? `<button class="ibtn del" data-act="del" aria-label="Delete layer" title="Delete layer">${ICON.trash}</button>`
       : '';
     out.push(
       `<div class="row${sel}${dim}" data-id="${n.id}" style="padding-left:${12 + depth * 16}px">
@@ -82,7 +87,7 @@ function rows(
           <button class="ibtn" data-act="rename" aria-label="Rename layer" title="Rename layer">${ICON.edit}</button>
           <button class="ibtn" data-act="vis" aria-label="Toggle visibility" title="${n.visible ? 'Hide' : 'Show'} layer">${n.visible ? ICON.eye : ICON.eyeOff}</button>
           <button class="ibtn" data-act="lock" aria-label="Toggle lock" title="${n.locked ? 'Unlock' : 'Lock'} layer">${n.locked ? ICON.lock : ICON.unlock}</button>
-          <button class="ibtn del" data-act="del" aria-label="Delete layer" title="Delete layer">${ICON.trash}</button>
+          ${delBtn}
         </div>
       </div>`,
     );
@@ -221,6 +226,47 @@ const FONT_OPTIONS = [
 
 function contentSection(n: Node, doc: Doc | null): string {
   const caps = doc ? capabilitiesForDoc(doc) : null;
+
+  if (n.src.adjustment) {
+    if (n.src.adjustment.type === 'brightness/contrast') {
+      const info = getBrightnessContrastInfo(n) ?? { brightness: 0, contrast: 0, useLegacy: false };
+      return `<div class="card-section">
+        <div class="card-title">Brightness / Contrast</div>
+        <div class="field-col">
+          <div class="field-between">
+            <label>Brightness</label>
+            <span id="p-bc-brightness-val" class="badge-value">${info.brightness}</span>
+          </div>
+          <div class="range-num-wrap">
+            <input type="range" id="p-bc-brightness" min="-150" max="150" step="1" value="${info.brightness}" class="slider-accent">
+            <input type="number" id="p-bc-brightness-num" min="-150" max="150" step="1" value="${info.brightness}" class="num-input-compact">
+          </div>
+        </div>
+        <div class="field-col" style="margin-top:10px;">
+          <div class="field-between">
+            <label>Contrast</label>
+            <span id="p-bc-contrast-val" class="badge-value">${info.contrast}</span>
+          </div>
+          <div class="range-num-wrap">
+            <input type="range" id="p-bc-contrast" min="-50" max="100" step="1" value="${info.contrast}" class="slider-accent">
+            <input type="number" id="p-bc-contrast-num" min="-50" max="100" step="1" value="${info.contrast}" class="num-input-compact">
+          </div>
+        </div>
+        <div class="field-col" style="margin-top:10px;">
+          <label class="checkbox-label">
+            <input type="checkbox" id="p-bc-legacy" ${info.useLegacy ? 'checked' : ''}>
+            <span>Use Legacy</span>
+          </label>
+        </div>
+      </div>`;
+    }
+    return `<div class="card-section">
+      <div class="card-title">Adjustment Layer</div>
+      <div class="note-box">
+        <strong>${esc(n.src.adjustment.type.toUpperCase())}</strong>: Simulated in preview and preserved on export. Direct parameter editing for this adjustment type is coming soon.
+      </div>
+    </div>`;
+  }
 
   const t = getTextInfo(n);
   if (t) {
@@ -497,6 +543,27 @@ export function renderProps(el: HTMLElement, state: PanelState, h: PanelHandlers
       }
     }
 
+    if (n.src.adjustment?.type === 'brightness/contrast') {
+      const info = getBrightnessContrastInfo(n);
+      if (info) {
+        const bRange = el.querySelector('#p-bc-brightness') as HTMLInputElement | null;
+        const bNum = el.querySelector('#p-bc-brightness-num') as HTMLInputElement | null;
+        const bSpan = el.querySelector('#p-bc-brightness-val');
+        const cRange = el.querySelector('#p-bc-contrast') as HTMLInputElement | null;
+        const cNum = el.querySelector('#p-bc-contrast-num') as HTMLInputElement | null;
+        const cSpan = el.querySelector('#p-bc-contrast-val');
+        const legCb = el.querySelector('#p-bc-legacy') as HTMLInputElement | null;
+
+        if (bRange && activeId !== 'p-bc-brightness') bRange.value = String(info.brightness);
+        if (bNum && activeId !== 'p-bc-brightness-num') bNum.value = String(info.brightness);
+        if (bSpan) bSpan.textContent = String(info.brightness);
+        if (cRange && activeId !== 'p-bc-contrast') cRange.value = String(info.contrast);
+        if (cNum && activeId !== 'p-bc-contrast-num') cNum.value = String(info.contrast);
+        if (cSpan) cSpan.textContent = String(info.contrast);
+        if (legCb && activeId !== 'p-bc-legacy') legCb.checked = info.useLegacy;
+      }
+    }
+
     return; // DOM was preserved in-place, zero focus loss!
   }
 
@@ -589,16 +656,22 @@ export function renderProps(el: HTMLElement, state: PanelState, h: PanelHandlers
 
   const px = el.querySelector('#p-x') as HTMLInputElement | null;
   const py = el.querySelector('#p-y') as HTMLInputElement | null;
-  const commitPos = () => {
-    if (px && py) h.setPosition(n, Number(px.value), Number(py.value));
+  const syncPos = (commit: boolean) => {
+    if (px && py) h.editPosition(n, px.value, py.value, commit);
   };
   if (px) {
-    px.onchange = commitPos;
-    px.onkeydown = (e) => { if (e.key === 'Enter') commitPos(); };
+    px.oninput = () => syncPos(false);
+    px.onchange = () => syncPos(true);
+    px.onkeydown = (e) => {
+      if (e.key === 'Enter') { syncPos(true); px.blur(); }
+    };
   }
   if (py) {
-    py.onchange = commitPos;
-    py.onkeydown = (e) => { if (e.key === 'Enter') commitPos(); };
+    py.oninput = () => syncPos(false);
+    py.onchange = () => syncPos(true);
+    py.onkeydown = (e) => {
+      if (e.key === 'Enter') { syncPos(true); py.blur(); }
+    };
   }
 
   const pw = el.querySelector('#p-w') as HTMLInputElement | null;
@@ -714,6 +787,46 @@ export function renderProps(el: HTMLElement, state: PanelState, h: PanelHandlers
       }
       fileReplaceInput.value = '';
     };
+  }
+
+  const pbcB = el.querySelector('#p-bc-brightness') as HTMLInputElement | null;
+  const pbcBNum = el.querySelector('#p-bc-brightness-num') as HTMLInputElement | null;
+  const pbcBVal = el.querySelector('#p-bc-brightness-val');
+  const pbcC = el.querySelector('#p-bc-contrast') as HTMLInputElement | null;
+  const pbcCNum = el.querySelector('#p-bc-contrast-num') as HTMLInputElement | null;
+  const pbcCVal = el.querySelector('#p-bc-contrast-val');
+  const pbcLeg = el.querySelector('#p-bc-legacy') as HTMLInputElement | null;
+
+  if (pbcB && pbcBNum) {
+    const syncB = (val: number, commit: boolean) => {
+      pbcB.value = String(val);
+      pbcBNum.value = String(val);
+      if (pbcBVal) pbcBVal.textContent = String(val);
+      h.editBrightnessContrast(n, { brightness: val }, commit);
+    };
+    pbcB.oninput = () => syncB(Number(pbcB.value), false);
+    pbcB.onchange = () => syncB(Number(pbcB.value), true);
+    pbcBNum.oninput = () => syncB(Number(pbcBNum.value), false);
+    pbcBNum.onchange = () => syncB(Number(pbcBNum.value), true);
+    pbcBNum.onkeydown = (e) => { if (e.key === 'Enter') { syncB(Number(pbcBNum.value), true); pbcBNum.blur(); } };
+  }
+
+  if (pbcC && pbcCNum) {
+    const syncC = (val: number, commit: boolean) => {
+      pbcC.value = String(val);
+      pbcCNum.value = String(val);
+      if (pbcCVal) pbcCVal.textContent = String(val);
+      h.editBrightnessContrast(n, { contrast: val }, commit);
+    };
+    pbcC.oninput = () => syncC(Number(pbcC.value), false);
+    pbcC.onchange = () => syncC(Number(pbcC.value), true);
+    pbcCNum.oninput = () => syncC(Number(pbcCNum.value), false);
+    pbcCNum.onchange = () => syncC(Number(pbcCNum.value), true);
+    pbcCNum.onkeydown = (e) => { if (e.key === 'Enter') { syncC(Number(pbcCNum.value), true); pbcCNum.blur(); } };
+  }
+
+  if (pbcLeg) {
+    pbcLeg.onchange = () => h.editBrightnessContrast(n, { useLegacy: pbcLeg.checked }, true);
   }
 
   const slider = el.querySelector('#p-op') as HTMLInputElement;

@@ -4,7 +4,19 @@ type PdfOcgConfig = Awaited<ReturnType<PDFDocumentProxy['getOptionalContentConfi
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 import type { Layer } from 'ag-psd';
 import { type Doc, type Node, type AiDocBacking, walk } from './model';
-import { exportAiWithPdfLib } from './aiPdfLib';
+import {
+  exportAiWithPdfLib,
+  decomposePdfTransformMatrix,
+  readInjectedLayerTransforms,
+  readPageExtGStateOpacity,
+  neutralizePageExtGStateOpacity,
+  type PdfMatrix,
+} from './aiPdfLib';
+import {
+  applyAiVectorShapeImport,
+  docHasAiShapeStreamEdits,
+  readFirstPageContentStreamText,
+} from './aiVectorShapes';
 
 GlobalWorkerOptions.workerSrc = pdfWorker;
 
@@ -49,10 +61,18 @@ export function parseOcgRefs(buf: ArrayBuffer): string[] {
   return refs;
 }
 
+/** Object refs listed under `/OFF[...]` in the default optional-content configuration. */
+export function parseOcgOffRefs(buf: ArrayBuffer): string[] {
+  const text = new TextDecoder('latin1').decode(new Uint8Array(buf));
+  const m = text.match(/\/OFF\[([^\]]*)\]/);
+  if (!m?.[1]) return [];
+  return [...m[1].matchAll(/(\d+)\s+0\s+R/g)].map((hit) => `${hit[1]} 0 R`);
+}
+
 const EXT_GSTATE_DICT_RE = /<<[^>]*\/Type\s*\/ExtGState[^>]*>>/;
 
-/** Read non-stroking opacity from the first PDF ExtGState dictionary (`/ca`). */
-export function parseExtGStateOpacity(buf: ArrayBuffer): number | null {
+/** Read non-stroking opacity from the first plaintext PDF ExtGState dictionary (`/ca`). */
+export function parseExtGStateOpacityLatin1(buf: ArrayBuffer): number | null {
   const text = new TextDecoder('latin1').decode(new Uint8Array(buf));
   const dict = text.match(EXT_GSTATE_DICT_RE)?.[0];
   if (!dict) return null;
@@ -60,6 +80,11 @@ export function parseExtGStateOpacity(buf: ArrayBuffer): number | null {
   if (!m) return null;
   const v = parseFloat(m[1]);
   return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : null;
+}
+
+/** Read page ExtGState /ca from plaintext or (for pdf-lib object streams) the parsed PDF. */
+export async function parseExtGStateOpacity(buf: ArrayBuffer): Promise<number | null> {
+  return parseExtGStateOpacityLatin1(buf) ?? (await readPageExtGStateOpacity(buf));
 }
 
 function formatPdfOpacity(opacity: number): string {
@@ -72,25 +97,26 @@ function formatPdfOpacity(opacity: number): string {
 }
 
 /** After export, confirm `/ca` in the file matches the requested layer opacity. */
-export function verifyExportedExtGStateOpacity(bytes: ArrayBuffer, expected: number): {
-  ok: boolean;
-  read: number | null;
-} {
-  const read = parseExtGStateOpacity(bytes);
+export async function verifyExportedExtGStateOpacity(
+  bytes: ArrayBuffer,
+  expected: number,
+): Promise<{ ok: boolean; read: number | null }> {
+  const read = await parseExtGStateOpacity(bytes);
   if (read === null) return { ok: false, read: null };
   return { ok: Math.abs(read - expected) < 0.015, read };
 }
 
-function pdfBytesForRender(original: ArrayBuffer, fileOpacity: number | null): Uint8Array {
+async function pdfBytesForRender(original: ArrayBuffer, fileOpacity: number | null): Promise<Uint8Array> {
   if (fileOpacity == null || Math.abs(fileOpacity - 1) < 1e-3) {
     return new Uint8Array(original.slice(0));
   }
-  const r = patchExtGStateOpacity(new Uint8Array(original.slice(0)), 1);
-  return r.ok ? r.bytes : new Uint8Array(original.slice(0));
+  // Latin1 ExtGState patches update /ca in-place but leave xref/streams in a shape browser pdf.js rejects;
+  // pdf-lib rewrite neutralizes every page ExtGState reliably (Node and browser).
+  return neutralizePageExtGStateOpacity(original);
 }
 
 function patchExtGStateOpacity(bytes: Uint8Array, opacity: number): { ok: boolean; bytes: Uint8Array } {
-  const text = new TextDecoder('latin1').decode(bytes);
+  const text = bytesToLatin1String(bytes);
   const oldBlock = text.match(EXT_GSTATE_DICT_RE)?.[0];
   if (!oldBlock || !/\/ca\s+[\d.]+/.test(oldBlock) || !/\/CA\s+[\d.]+/.test(oldBlock)) {
     return { ok: false, bytes };
@@ -107,8 +133,50 @@ function applyFileOpacityToNodes(roots: Node[], opacity: number) {
   for (const n of walk(roots)) {
     if (n.kind === 'group') continue;
     n.opacity = opacity;
+    n.importOpacity = opacity;
     n.src.opacity = opacity;
   }
+}
+
+/**
+ * Move/resize/rotate transforms a previous export wrote around each layer.
+ * A single flat "Artwork" preview can only be un-transformed when the page has at most one layer block.
+ */
+async function readLayerTransforms(original: ArrayBuffer, ocgCount: number): Promise<Map<number, PdfMatrix>> {
+  let stream: Awaited<ReturnType<typeof readFirstPageContentStreamText>> = null;
+  try {
+    stream = await readFirstPageContentStreamText(original);
+  } catch {
+    return new Map();
+  }
+  if (!stream) return new Map();
+  const { transforms, blockCount } = readInjectedLayerTransforms(stream.text);
+  if (ocgCount === 0 && blockCount > 1) return new Map();
+  return transforms;
+}
+
+function applyFileVisibilityToNodes(roots: Node[], ocgRefs: string[], offRefs: string[]) {
+  if (!offRefs.length) return;
+  for (const n of walk(roots)) {
+    if (n.kind === 'group') continue;
+    const m = /^ocg-(\d+)$/.exec(n.key);
+    const idx = m ? parseInt(m[1], 10) : n.key === 'artwork-0' && ocgRefs.length === 1 ? 0 : null;
+    const ref = idx === null ? undefined : ocgRefs[idx];
+    if (!ref || !offRefs.includes(ref)) continue;
+    n.visible = false;
+    n.importVisible = false;
+    n.src.hidden = true;
+  }
+}
+
+/** One code unit per byte (Node `latin1` semantics). Browser `TextDecoder('latin1')` uses Windows-1252 and breaks binary PDF streams on re-encode. */
+function bytesToLatin1String(bytes: Uint8Array): string {
+  let s = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    s += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return s;
 }
 
 function latin1Encode(text: string): Uint8Array {
@@ -146,7 +214,7 @@ function fixPdfXrefAfterInsert(text: string, patchPos: number, delta: number): s
 
 /** Replace the first `search` span; updates xref when the replacement changes byte length. */
 function patchPdfLatin1(bytes: Uint8Array, search: string, replace: string): { ok: boolean; bytes: Uint8Array } {
-  const text = new TextDecoder('latin1').decode(bytes);
+  const text = bytesToLatin1String(bytes);
   const idx = text.indexOf(search);
   if (idx < 0) return { ok: false, bytes };
   let newText = text.slice(0, idx) + replace + text.slice(idx + search.length);
@@ -155,29 +223,130 @@ function patchPdfLatin1(bytes: Uint8Array, search: string, replace: string): { o
   return { ok: true, bytes: latin1Encode(newText) };
 }
 
+function legacyPdfWorkerFileUrl(cwd: string): string {
+  const rel = `${cwd}/node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs`.replace(/\\/g, '/');
+  return rel.match(/^[a-zA-Z]:\//) ? `file:///${rel}` : `file://${rel.startsWith('/') ? '' : '/'}${rel}`;
+}
+
 async function loadPdf(data: Uint8Array): Promise<PDFDocumentProxy> {
+  const nodeProcess = (globalThis as { process?: { versions?: { node?: string }; cwd?: () => string } })
+    .process;
+  const cwd = nodeProcess?.cwd?.();
+  if (nodeProcess?.versions?.node && cwd) {
+    GlobalWorkerOptions.workerSrc = legacyPdfWorkerFileUrl(cwd);
+  }
   return getDocument({ data, isEvalSupported: false }).promise;
 }
 
+/** Area to rasterize, in page units relative to the artboard's top-left corner. */
+interface RenderRegion {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** `p · q`: apply `q` first, then `p`. */
+function multiplyMatrix(p: readonly number[], q: readonly number[]): PdfMatrix {
+  return [
+    p[0] * q[0] + p[2] * q[1],
+    p[1] * q[0] + p[3] * q[1],
+    p[0] * q[2] + p[2] * q[3],
+    p[1] * q[2] + p[3] * q[3],
+    p[0] * q[4] + p[2] * q[5] + p[4],
+    p[1] * q[4] + p[3] * q[5] + p[5],
+  ];
+}
+
+function invertMatrix(m: readonly number[]): PdfMatrix | null {
+  const det = m[0] * m[3] - m[1] * m[2];
+  if (Math.abs(det) < 1e-12) return null;
+  const a = m[3] / det;
+  const b = -m[1] / det;
+  const c = -m[2] / det;
+  const d = m[0] / det;
+  return [a, b, c, d, -(a * m[4] + c * m[5]), -(b * m[4] + d * m[5])];
+}
+
+/**
+ * @param pdfPreTransform Applied to page content in PDF user space before the viewport
+ *   (used to undo an export transform so the raster shows the artwork in its own frame).
+ */
 async function renderPageToCanvas(
   page: Awaited<ReturnType<PDFDocumentProxy['getPage']>>,
   scale: number,
   optionalContentConfig?: PdfOcgConfig,
+  region?: RenderRegion,
+  pdfPreTransform?: PdfMatrix,
 ) {
-  const viewport = page.getViewport({ scale });
+  const viewport = page.getViewport({
+    scale,
+    offsetX: region ? -region.x * scale : 0,
+    offsetY: region ? -region.y * scale : 0,
+  });
   const canvas = document.createElement('canvas');
-  canvas.width = Math.ceil(viewport.width);
-  canvas.height = Math.ceil(viewport.height);
+  canvas.width = Math.ceil((region?.w ?? viewport.width / scale) * scale);
+  canvas.height = Math.ceil((region?.h ?? viewport.height / scale) * scale);
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Could not create a canvas for the AI preview.');
+  let transform: PdfMatrix | undefined;
+  if (pdfPreTransform) {
+    // pdf.js applies `transform` after the viewport: device = T · V · p. Want V · pre · p.
+    const vInv = invertMatrix(viewport.transform);
+    if (vInv) transform = multiplyMatrix(multiplyMatrix(viewport.transform, pdfPreTransform), vInv);
+  }
+  // PDF pages have no paper fill; pdf.js would otherwise paint the canvas white.
   await page.render({
     canvasContext: ctx,
     viewport,
+    transform,
+    background: 'rgba(0,0,0,0)',
     optionalContentConfigPromise: optionalContentConfig
       ? Promise.resolve(optionalContentConfig)
       : undefined,
   }).promise;
   return { canvas, viewport };
+}
+
+/**
+ * Artboard plus any artwork drawn outside it (within one artboard size on each side).
+ * PDF viewers clip to the page box, but Illustrator keeps off-artboard art on the pasteboard.
+ */
+async function findArtworkRegion(
+  page: Awaited<ReturnType<PDFDocumentProxy['getPage']>>,
+  width: number,
+  height: number,
+  allLayersOn?: PdfOcgConfig,
+  pdfPreTransform?: PdfMatrix,
+): Promise<RenderRegion> {
+  const artboard = { x: 0, y: 0, w: width, h: height };
+  const probeScale = Math.min(0.25, 512 / Math.max(width, height));
+  const probe = { x: -width, y: -height, w: width * 3, h: height * 3 };
+  const { canvas } = await renderPageToCanvas(page, probeScale, allLayersOn, probe, pdfPreTransform);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return artboard;
+  const { data, width: cw, height: ch } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  let minX = cw, minY = ch, maxX = -1, maxY = -1;
+  for (let y = 0; y < ch; y++) {
+    for (let x = 0; x < cw; x++) {
+      if (data[(y * cw + x) * 4 + 3] === 0) continue;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+  }
+  if (maxX < 0) return artboard;
+  const left = probe.x + minX / probeScale - 1 / probeScale;
+  const top = probe.y + minY / probeScale - 1 / probeScale;
+  const right = probe.x + (maxX + 1) / probeScale + 1 / probeScale;
+  const bottom = probe.y + (maxY + 1) / probeScale + 1 / probeScale;
+  if (left >= 0 && top >= 0 && right <= width && bottom <= height) return artboard;
+  const x = Math.floor(Math.max(probe.x, Math.min(0, left)));
+  const y = Math.floor(Math.max(probe.y, Math.min(0, top)));
+  const r = Math.ceil(Math.min(probe.x + probe.w, Math.max(width, right)));
+  const b = Math.ceil(Math.min(probe.y + probe.h, Math.max(height, bottom)));
+  return { x, y, w: r - x, h: b - y };
 }
 
 function ocgIndexForNode(n: Node): number | null {
@@ -205,10 +374,33 @@ async function buildLayerRoots(
   height: number,
   ocgNames: string[],
   unsupportedBase: string[],
+  region: RenderRegion = { x: 0, y: 0, w: width, h: height },
+  allLayersOn?: PdfOcgConfig,
+  layerTransforms: Map<number, PdfMatrix> = new Map(),
 ): Promise<Node[]> {
+  /** Render one layer; a layer carrying an export transform is rendered untransformed and placed by it. */
+  const renderLeaf = async (
+    name: string,
+    key: string,
+    layerIndex: number,
+    cfg: PdfOcgConfig | undefined,
+  ): Promise<Node> => {
+    const m = layerTransforms.get(layerIndex);
+    const undo = m ? invertMatrix(m) : null;
+    if (m && undo) {
+      const frame = await findArtworkRegion(page, width, height, cfg, undo);
+      const placement = decomposePdfTransformMatrix(m, frame, height);
+      if (placement) {
+        const { canvas } = await renderPageToCanvas(page, scale, cfg, frame, undo);
+        return buildLeaf(name, canvas, frame, key, [...unsupportedBase], placement);
+      }
+    }
+    const { canvas } = await renderPageToCanvas(page, scale, cfg, region);
+    return buildLeaf(name, canvas, region, key, [...unsupportedBase]);
+  };
+
   if (ocgNames.length === 0) {
-    const { canvas } = await renderPageToCanvas(page, scale);
-    return [buildLeaf('Artwork', canvas, width, height, 'artwork-0', [...unsupportedBase])];
+    return [await renderLeaf('Artwork', 'artwork-0', 0, allLayersOn)];
   }
 
   const baseCfg = await pdf.getOptionalContentConfig();
@@ -230,24 +422,30 @@ async function buildLayerRoots(
     if (gid) cfg.setVisibility(gid, true);
     else if (ids.length === 1) cfg.setVisibility(ids[0], true);
 
-    const { canvas } = await renderPageToCanvas(page, scale, cfg);
-    roots.push(buildLeaf(name, canvas, width, height, `ocg-${i}`, [...unsupportedBase]));
+    roots.push(await renderLeaf(name, `ocg-${i}`, i, cfg));
   }
   return roots;
 }
 
-function stubLayer(name: string, w: number, h: number, canvas: HTMLCanvasElement): Layer {
-  return { name, left: 0, top: 0, right: w, bottom: h, canvas, hidden: false, opacity: 1 };
+function stubLayer(name: string, r: RenderRegion, canvas: HTMLCanvasElement): Layer {
+  return { name, left: r.x, top: r.y, right: r.x + r.w, bottom: r.y + r.h, canvas, hidden: false, opacity: 1 };
 }
 
+/**
+ * @param frame Area the canvas covers, in untransformed artwork coordinates.
+ * @param placement Where an export transform already in the file puts that frame (box + rotation).
+ */
 function buildLeaf(
   name: string,
   canvas: HTMLCanvasElement,
-  w: number,
-  h: number,
+  frame: RenderRegion,
   key: string,
   unsupported: string[],
+  placement?: RenderRegion & { rotation: number },
 ): Node {
+  const p = placement ?? { ...frame, rotation: 0 };
+  const src = stubLayer(name, p, canvas);
+  if (placement) (src as Layer & { aiArtFrame?: RenderRegion }).aiArtFrame = { ...frame };
   return {
     id: nextId(),
     key,
@@ -258,19 +456,20 @@ function buildLeaf(
     opacity: 1,
     importOpacity: 1,
     importVisible: true,
-    x: 0,
-    y: 0,
-    w,
-    h,
-    rotation: 0,
-    ow: w,
-    oh: h,
-    ox: 0,
-    oy: 0,
+    x: p.x,
+    y: p.y,
+    w: p.w,
+    h: p.h,
+    rotation: p.rotation,
+    importRotation: p.rotation,
+    ow: p.w,
+    oh: p.h,
+    ox: p.x,
+    oy: p.y,
     canvas,
     children: [],
     parent: null,
-    src: stubLayer(name, w, h, canvas),
+    src,
     unsupported,
   };
 }
@@ -285,9 +484,9 @@ export async function importAi(name: string, buf: ArrayBuffer): Promise<Doc> {
   const ocgNames = parseOcgNames(original);
   const ocgRefs = parseOcgRefs(original);
   const hasAiprivate = new TextDecoder('latin1').decode(new Uint8Array(original)).includes('AIPrivateData');
-  const fileOpacity = parseExtGStateOpacity(original);
+  const fileOpacity = await parseExtGStateOpacity(original);
   const hasExtGStateOpacity = fileOpacity != null;
-  const pdfData = pdfBytesForRender(original, fileOpacity);
+  const pdfData = await pdfBytesForRender(original, fileOpacity);
 
   let pdf: PDFDocumentProxy;
   try {
@@ -330,8 +529,30 @@ export async function importAi(name: string, buf: ArrayBuffer): Promise<Doc> {
     unsupportedBase.push('PDF opacity (ExtGState) was not found in the original file; export creates ExtGState entries.');
   }
 
-  const roots = await buildLayerRoots(pdf, page, scale, width, height, ocgNames, unsupportedBase);
-  if (hasExtGStateOpacity && fileOpacity != null) applyFileOpacityToNodes(roots, fileOpacity);
+  // Layer pixels are rendered with every OCG on; the file's on/off state becomes node visibility.
+  const allLayersOn = await pdf.getOptionalContentConfig();
+  for (const id of Object.keys(allLayersOn.getGroups() ?? {})) allLayersOn.setVisibility(id, true, false);
+
+  const region = await findArtworkRegion(page, width, height, allLayersOn);
+  if (region.x < 0 || region.y < 0 || region.w > width || region.h > height) {
+    warnings.push(
+      'Some artwork lies outside the artboard. It is kept in the file and shown here on the pasteboard, but PDF viewers only display the artboard area.',
+    );
+  }
+  const layerTransforms = await readLayerTransforms(original, ocgNames.length);
+  const roots = await buildLayerRoots(
+    pdf,
+    page,
+    scale,
+    width,
+    height,
+    ocgNames,
+    unsupportedBase,
+    region,
+    allLayersOn,
+    layerTransforms,
+  );
+  applyFileVisibilityToNodes(roots, ocgRefs, parseOcgOffRefs(original));
 
   const ai: AiDocBacking = {
     kind: 'ai',
@@ -368,6 +589,9 @@ export async function importAi(name: string, buf: ArrayBuffer): Promise<Doc> {
   if (missing.length) {
     doc.warnings.push(`${missing.length} layer(s) have no preview pixels.`);
   }
+
+  await applyAiVectorShapeImport(doc);
+  if (fileOpacity != null) applyFileOpacityToNodes(doc.roots, fileOpacity);
 
   return doc;
 }
@@ -491,7 +715,7 @@ export function syncToAi(doc: Doc, bytes: Uint8Array): { bytes: Uint8Array; note
       n.y !== n.oy ||
       n.w !== n.ow ||
       n.h !== n.oh ||
-      Math.abs(n.rotation) > 1e-3
+      Math.abs(n.rotation - (n.importRotation ?? 0)) > 1e-3
     ) {
       notes.push('Move, scale, or rotate on .ai layers is canvas-only until PDF content patching is supported.');
       break;
@@ -501,7 +725,90 @@ export function syncToAi(doc: Doc, bytes: Uint8Array): { bytes: Uint8Array; note
   return { bytes, notes };
 }
 
-/** Export Illustrator document using pdf-lib clean stream patching with fallback to legacy byte-patching. */
+function docHasGeometryEdits(doc: Doc): boolean {
+  for (const n of walk(doc.roots)) {
+    if (n.kind === 'group') continue;
+    if (
+      n.x !== n.ox ||
+      n.y !== n.oy ||
+      n.w !== n.ow ||
+      n.h !== n.oh ||
+      Math.abs(n.rotation - (n.importRotation ?? 0)) > 1e-3
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function docHasAiMetadataEdits(doc: Doc): boolean {
+  if (!doc.ai) return false;
+  const byOcg = leavesByOcgIndex(doc);
+  for (let i = 0; i < doc.ai.ocgNames.length; i++) {
+    const node = byOcg.get(i);
+    if (node && node.name !== doc.ai.ocgNames[i]) return true;
+  }
+  for (const n of walk(doc.roots)) {
+    if (n.kind === 'group') continue;
+    if (n.visible !== n.importVisible) return true;
+    if (Math.abs(n.opacity - n.importOpacity) > 1e-3) return true;
+  }
+  return false;
+}
+
+function pushExportNotes(doc: Doc, notes: string[]) {
+  if (!notes.length) return;
+  const tag = 'Export note: ';
+  for (const note of notes) {
+    if (!doc.warnings.includes(tag + note)) doc.warnings.push(tag + note);
+  }
+}
+
+function firstLeafOpacity(doc: Doc): number {
+  return [...walk(doc.roots)].find((n) => n.kind !== 'group')?.opacity ?? 1;
+}
+
+async function opacityPersisted(bytes: ArrayBuffer, expected: number): Promise<boolean> {
+  const verify = await verifyExportedExtGStateOpacity(bytes, expected);
+  return verify.ok;
+}
+
+function toArrayBuffer(out: Uint8Array): ArrayBuffer {
+  return out.buffer.slice(out.byteOffset, out.byteOffset + out.byteLength) as ArrayBuffer;
+}
+
+async function exportViaPdfLib(doc: Doc): Promise<ArrayBuffer> {
+  const { bytes, notes } = await exportAiWithPdfLib(doc);
+  assertPdfAi(bytes, doc.name);
+  const want = firstLeafOpacity(doc);
+  if (Math.abs(want - 1) > 1e-3 || doc.ai!.hasExtGStateOpacity) {
+    if (!(await opacityPersisted(bytes, want))) {
+      throw new Error(
+        `Opacity export verification failed: PDF ExtGState /ca does not match ${formatPdfOpacity(want)}.`,
+      );
+    }
+  }
+  pushExportNotes(doc, notes);
+  return bytes;
+}
+
+async function finalizeMetadataExport(doc: Doc, out: Uint8Array, patchNotes: string[]): Promise<ArrayBuffer> {
+  const outBuf = toArrayBuffer(new Uint8Array(out));
+  assertPdfAi(outBuf, doc.name);
+  const want = firstLeafOpacity(doc);
+  const needOpacity = Math.abs(want - 1) > 1e-3 || doc.ai!.hasExtGStateOpacity;
+  if (needOpacity && !(await opacityPersisted(outBuf, want))) {
+    return exportViaPdfLib(doc);
+  }
+  pushExportNotes(doc, patchNotes);
+  return outBuf;
+}
+
+/**
+ * Export Illustrator document.
+ * Unedited files return original bytes (preserves AIPrivateData). Metadata-only edits use in-place PDF patching.
+ * Geometry and PDF rectangle fill/stroke edits use pdf-lib (may rewrite Illustrator private streams).
+ */
 export async function exportAi(doc: Doc): Promise<ArrayBuffer> {
   if (doc.format !== 'ai' || !doc.ai) {
     throw new Error('Export to .ai requires an imported Illustrator document.');
@@ -510,49 +817,25 @@ export async function exportAi(doc: Doc): Promise<ArrayBuffer> {
     throw new Error('This document has no original file bytes to export.');
   }
 
-  try {
-    const { bytes, notes } = await exportAiWithPdfLib(doc);
-    assertPdfAi(bytes, doc.name);
+  const geometry = docHasGeometryEdits(doc);
+  const shapeStream = docHasAiShapeStreamEdits(doc);
+  const metadata = docHasAiMetadataEdits(doc);
 
-    if (notes.length) {
-      const tag = 'Export note: ';
-      for (const note of notes) {
-        if (!doc.warnings.includes(tag + note)) doc.warnings.push(tag + note);
-      }
-    }
-    return bytes;
-  } catch (pdfLibErr) {
-    console.warn('pdf-lib export failed, attempting legacy byte patching fallback:', pdfLibErr);
-
-    let { bytes: out, notes: patchNotes } = syncToAi(doc, new Uint8Array(doc.original.slice(0)));
-    const outBuf = new Uint8Array(out).buffer;
-    assertPdfAi(outBuf, doc.name);
-
-    const opacityFail = patchNotes.find((n) => n.startsWith('Could not write opacity'));
-    if (opacityFail) {
-      throw new Error(opacityFail);
-    }
-
-    if (doc.ai.hasExtGStateOpacity) {
-      const leaves = [...walk(doc.roots)].filter((n) => n.kind !== 'group');
-      const target = leaves[0]?.opacity ?? 1;
-      const verify = verifyExportedExtGStateOpacity(outBuf, target);
-      if (!verify.ok) {
-        const exp = formatPdfOpacity(target);
-        const got = verify.read == null ? 'missing' : formatPdfOpacity(verify.read);
-        throw new Error(
-          `Opacity export verification failed: PDF ExtGState /ca is ${got}, expected ${exp}. Re-open the downloaded file to confirm.`,
-        );
-      }
-    }
-
-    if (patchNotes.length) {
-      const tag = 'Export note: ';
-      for (const note of patchNotes) {
-        if (!doc.warnings.includes(tag + note)) doc.warnings.push(tag + note);
-      }
-    }
-
-    return outBuf;
+  if (!geometry && !shapeStream && !metadata) {
+    return doc.original.slice(0);
   }
+
+  if (geometry || shapeStream) {
+    try {
+      return await exportViaPdfLib(doc);
+    } catch (pdfLibErr) {
+      console.warn('pdf-lib export failed, attempting legacy byte patching fallback:', pdfLibErr);
+      if (geometry) {
+        throw pdfLibErr;
+      }
+    }
+  }
+
+  const { bytes: out, notes: patchNotes } = syncToAi(doc, new Uint8Array(doc.original.slice(0)));
+  return finalizeMetadataExport(doc, out, patchNotes);
 }

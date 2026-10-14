@@ -7,6 +7,7 @@ dist/
 # Local scripts / audit artifacts (not part of the app)
 *.mjs
 .audit-out/
+artifacts/poc/
 
 # Environment & OS
 .env
@@ -20,4 +21,5 @@ npm-debug.log*
 
 # Editor (optional local settings)
 .vscode/
-.idea/
+# Large sample assets (>100MB)
+public/10960916.psd

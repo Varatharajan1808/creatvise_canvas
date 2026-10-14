@@ -1,7 +1,5 @@
-import { importAi } from './ai';
-import { importPsd } from './psd';
 import type { Doc } from './model';
-import { isSupportedImportFormat } from './formatCaps';
+import { formatRegistry } from './formats';
 
 /** Load a document from stored bytes (file picker, IndexedDB, drag-drop). */
 export async function importDocument(
@@ -9,9 +7,9 @@ export async function importDocument(
   bytes: ArrayBuffer,
   format: Doc['format'],
 ): Promise<Doc> {
-  if (!isSupportedImportFormat(format)) {
+  const adapter = formatRegistry.get(format);
+  if (!adapter) {
     throw new Error(`Import is not supported for format "${format}".`);
   }
-  if (format === 'psd') return importPsd(name, bytes);
-  return importAi(name, bytes);
+  return adapter.importDoc(name, bytes);
 }

@@ -34,6 +34,7 @@ export interface Node {
   w: number;
   h: number;
   rotation: number; // degrees, clockwise, around the layer centre (raster layers only)
+  importRotation?: number; // rotation at import time (AI layers re-imported with a transform); 0 when absent
   ow: number; // size at import time
   oh: number;
   ox: number; // position at import time (used to patch the original on export)

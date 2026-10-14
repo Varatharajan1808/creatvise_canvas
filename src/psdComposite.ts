@@ -3,6 +3,7 @@ import { type Doc, type Node, effOpacity, effVisible, leaves } from './model';
 import { blendPixelsInto, isPixelBlendMode } from './psdBlend';
 import { type EmbeddedCompositeStatus, embeddedCompositeStatus, unsimulatedFeatures } from './psdCompositeRule';
 import { applyAdjustmentToCanvas, isSupportedAdjustment } from './psdAdjustment';
+import { activeDropShadow, activeOuterGlow, activeStroke, paintDropShadow, paintOuterGlow, paintStroke } from './psdLayerEffects';
 
 /**
  * Canvas `globalCompositeOperation` for Photoshop blend modes that canvas supports natively.
@@ -160,10 +161,6 @@ function applyLayerMask(g: CanvasRenderingContext2D, mask: LayerMaskData | undef
   g.globalCompositeOperation = 'destination-in';
   g.drawImage(maskAlphaCanvas(mask.canvas as HTMLCanvasElement), left, top);
   g.restore();
-}
-
-function nodeToDocCanvas(n: Node, docW: number, docH: number): HTMLCanvasElement | null {
-  return nodeToDocCanvasAt(n, docW, docH, n.x, n.y, n.w, n.h, n.rotation);
 }
 
 /** Layer geometry / visibility / opacity differs from import (includes live opacity scrub). */
@@ -377,6 +374,12 @@ function paintLeaf(g: CanvasRenderingContext2D, r: StackRender, n: Node, visible
     docLayer = clipLayerToBase(doc.width, doc.height, docLayer, shape);
   }
 
+  const shadow = activeDropShadow(n.src.effects);
+  if (shadow) paintDropShadow(g, docLayer, opacity, shadow);
+
+  const glow = activeOuterGlow(n.src.effects);
+  if (glow) paintOuterGlow(g, docLayer, opacity, glow);
+
   const mode = n.src.blendMode;
   if (isPixelBlendMode(mode)) {
     const r = poseBounds(pose, doc.width, doc.height);
@@ -393,6 +396,9 @@ function paintLeaf(g: CanvasRenderingContext2D, r: StackRender, n: Node, visible
     g.drawImage(docLayer, 0, 0);
     g.restore();
   }
+
+  const stroke = activeStroke(n.src.effects);
+  if (stroke) paintStroke(g, docLayer, opacity, stroke);
 }
 
 /** Clipped layers follow their base: when the base is edited they must be redrawn with it. */
@@ -477,6 +483,15 @@ function patchEmbeddedFootprints(
   g.restore();
 }
 
+/** Whether the viewport shows one baked PSD texture (syncDoc calls getDocPreviewCanvas). */
+export function docUsesFullDocPreview(doc: Doc): boolean {
+  if (doc.format !== 'psd') return false;
+  const previewDirty = docHasPreviewDirtyLayers(doc);
+  if (doc.psdStaticComposite && doc.fileComposite && !previewDirty) return true;
+  if (doc.psdFileCompositeBase && doc.fileComposite) return true;
+  return doc.psdPreviewMode === 'composite' || docNeedsCompositePreview(doc);
+}
+
 export function docNeedsCompositePreview(doc: Doc): boolean {
   if (doc.format !== 'psd') return false;
   return leaves(doc).some((n) => {
@@ -486,7 +501,10 @@ export function docNeedsCompositePreview(doc: Doc): boolean {
       !!l.clipping ||
       (!!l.adjustment && isSupportedAdjustment(l.adjustment)) ||
       (mode !== 'normal' && mode !== 'pass through') ||
-      (!!l.mask?.canvas && !l.mask.disabled)
+      (!!l.mask?.canvas && !l.mask.disabled) ||
+      !!activeDropShadow(l.effects) ||
+      !!activeOuterGlow(l.effects) ||
+      !!activeStroke(l.effects)
     );
   });
 }
@@ -497,7 +515,7 @@ export function countAdjustmentLayers(doc: Doc): number {
 
 /**
  * Paint visible leaf layers with blend modes, clipping, and raster masks (2D).
- * Does not simulate adjustment layers or layer effects.
+ * Simulates supported adjustment layers and drop shadow; other layer effects are not drawn here.
  */
 export function composeDocPreview(doc: Doc): HTMLCanvasElement {
   const c = document.createElement('canvas');
@@ -547,7 +565,8 @@ export function composeDocPreviewWithFileBase(doc: Doc): HTMLCanvasElement | nul
 export function reconcilePsdPreviewMode(doc: Doc): void {
   if (doc.format !== 'psd') return;
   const dirty = docHasPreviewDirtyLayers(doc);
-  if (doc.psdFileCompositeBase && doc.fileComposite) {
+  const hasDirtyAdjustment = leaves(doc).some((n) => !!n.src.adjustment && isLayerPreviewAffecting(n));
+  if (doc.psdFileCompositeBase && doc.fileComposite && !hasDirtyAdjustment) {
     if (!dirty) {
       doc.psdStaticComposite = true;
       doc.psdPreviewMode = 'file-composite';

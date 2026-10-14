@@ -361,6 +361,7 @@ export interface LayerState {
   text?: { text: string; style?: TextStyle; styleRuns?: TextStyleRun[]; paragraphStyleRuns?: ParagraphStyleRun[] };
   vectorFill?: VectorContent;
   vectorStroke?: any;
+  adjustment?: any;
   canvas: HTMLCanvasElement | null;
   baseShapeCanvas?: HTMLCanvasElement | null;
   x: number; y: number; w: number; h: number;
@@ -377,6 +378,7 @@ export function captureState(n: Node): LayerState {
     text: t ? { text: t.text, style: clone(t.style), styleRuns: clone(t.styleRuns), paragraphStyleRuns: clone(t.paragraphStyleRuns) } : undefined,
     vectorFill: clone(n.src.vectorFill),
     vectorStroke: clone(n.src.vectorStroke),
+    adjustment: clone(n.src.adjustment),
     canvas: n.canvas,
     baseShapeCanvas: n.baseShapeCanvas,
     x: n.x, y: n.y, w: n.w, h: n.h,
@@ -398,6 +400,7 @@ export function restoreState(n: Node, s: LayerState) {
   }
   n.src.vectorFill = clone(s.vectorFill);
   n.src.vectorStroke = clone(s.vectorStroke);
+  if (s.adjustment !== undefined) n.src.adjustment = clone(s.adjustment);
   n.canvas = s.canvas;
   n.baseShapeCanvas = s.baseShapeCanvas;
   n.x = s.x; n.y = s.y; n.w = s.w; n.h = s.h;
@@ -408,16 +411,59 @@ export function restoreState(n: Node, s: LayerState) {
   n.previewContentEpoch = s.previewContentEpoch;
 }
 
+// ---------------------------------------------------------------- brightness/contrast adjustment
+
+export interface BrightnessContrastInfo {
+  brightness: number;
+  contrast: number;
+  useLegacy: boolean;
+}
+
+export function getBrightnessContrastInfo(n: Node): BrightnessContrastInfo | null {
+  if (n.src.adjustment?.type !== 'brightness/contrast') return null;
+  const adj = n.src.adjustment;
+  return {
+    brightness: adj.brightness ?? 0,
+    contrast: adj.contrast ?? 0,
+    useLegacy: !!adj.useLegacy,
+  };
+}
+
+export function applyBrightnessContrast(n: Node, patch: Partial<BrightnessContrastInfo>) {
+  if (!n.src.adjustment || n.src.adjustment.type !== 'brightness/contrast') {
+    n.src.adjustment = { type: 'brightness/contrast', brightness: 0, contrast: 0, useLegacy: false };
+  }
+  const adj = n.src.adjustment;
+  if (patch.brightness !== undefined) adj.brightness = Math.round(patch.brightness);
+  if (patch.contrast !== undefined) adj.contrast = Math.round(patch.contrast);
+  if (patch.useLegacy !== undefined) adj.useLegacy = !!patch.useLegacy;
+}
+
 // ---------------------------------------------------------------- saving to the browser
 
 export type SavedLayerState = Omit<LayerState, 'canvas' | 'baseShapeCanvas'>;
 
 /** Everything about a layer's edits that can be stored. Canvases can't be stored, they are rebuilt on restore. */
 export function serializeState(n: Node): SavedLayerState {
-  const { canvas, baseShapeCanvas, ...rest } = captureState(n);
-  void canvas;
-  void baseShapeCanvas;
-  return rest;
+  const s = captureState(n);
+  return {
+    text: s.text,
+    vectorFill: s.vectorFill,
+    vectorStroke: s.vectorStroke,
+    adjustment: s.adjustment,
+    x: s.x,
+    y: s.y,
+    w: s.w,
+    h: s.h,
+    rotation: s.rotation,
+    ox: s.ox,
+    oy: s.oy,
+    ow: s.ow,
+    oh: s.oh,
+    textTransform: s.textTransform,
+    textEdited: s.textEdited,
+    previewContentEpoch: s.previewContentEpoch,
+  };
 }
 
 export function applySavedState(n: Node, s: SavedLayerState) {

@@ -1,6 +1,5 @@
 import type {
   ColorBalanceAdjustment,
-  ColorBalanceValues,
 } from 'ag-psd';
 
 export interface ColorBalanceParams {

@@ -208,7 +208,6 @@ export function parse3dlLut(content: string | Uint8Array): Lut3D | null {
 
   let size = 0;
   let maxVal = 0;
-  let inMesh = false;
   const values: number[] = [];
 
   for (let i = 0; i < lines.length; i++) {
@@ -219,12 +218,10 @@ export function parse3dlLut(content: string | Uint8Array): Lut3D | null {
 
     const upper = rawLine.toUpperCase();
     if (upper === '3DMESH') {
-      inMesh = true;
       continue;
     }
 
     if (upper.startsWith('MESH')) {
-      inMesh = true;
       const parts = rawLine.split(/\s+/);
       if (parts.length >= 3) {
         const inBits = parseInt(parts[1], 10);

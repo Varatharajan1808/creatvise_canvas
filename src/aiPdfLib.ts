@@ -7,14 +7,70 @@ import {
   PDFBool,
   PDFNumber,
   PDFRef,
-  PDFRawStream,
 } from 'pdf-lib';
 import { inflate } from 'pako';
 import { type Doc, type Node, walk } from './model';
+import { patchAiShapeColorsInStream } from './aiVectorShapes';
 
 export interface ExportAiResult {
   bytes: ArrayBuffer;
   notes: string[];
+}
+
+function pageExtGStateDict(pdfDoc: PDFDocument): PDFDict | null {
+  if (pdfDoc.getPageCount() < 1) return null;
+  const page = pdfDoc.getPage(0);
+  const res = pdfDoc.context.lookup(page.node.get(PDFName.of('Resources')));
+  if (!(res instanceof PDFDict)) return null;
+  const ext = pdfDoc.context.lookup(res.get(PDFName.of('ExtGState')));
+  return ext instanceof PDFDict ? ext : null;
+}
+
+function extGStateCa(gs: PDFDict): number | null {
+  const ca = gs.get(PDFName.of('ca'));
+  if (ca instanceof PDFNumber) {
+    const v = ca.asNumber();
+    return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : null;
+  }
+  return null;
+}
+
+/**
+ * Page ExtGState /ca (prefers /GS0, the graphics state sample.ai already invokes).
+ * Reads object streams that a latin1 scan of the file cannot see.
+ */
+export async function readPageExtGStateOpacity(buf: ArrayBuffer): Promise<number | null> {
+  const pdfDoc = await PDFDocument.load(buf.slice(0), { ignoreEncryption: true });
+  const ext = pageExtGStateDict(pdfDoc);
+  if (!ext) return null;
+  const gs0 = pdfDoc.context.lookup(ext.get(PDFName.of('GS0')));
+  if (gs0 instanceof PDFDict) {
+    const ca = extGStateCa(gs0);
+    if (ca != null) return ca;
+  }
+  for (const key of ext.keys()) {
+    const gs = pdfDoc.context.lookup(ext.get(key));
+    if (gs instanceof PDFDict) {
+      const ca = extGStateCa(gs);
+      if (ca != null) return ca;
+    }
+  }
+  return null;
+}
+
+/** Copy of `buf` with every page ExtGState /ca and /CA set to 1 so the preview raster is not pre-multiplied. */
+export async function neutralizePageExtGStateOpacity(buf: ArrayBuffer): Promise<Uint8Array> {
+  const pdfDoc = await PDFDocument.load(buf.slice(0), { ignoreEncryption: true });
+  const ext = pageExtGStateDict(pdfDoc);
+  if (!ext) return new Uint8Array(buf.slice(0));
+  for (const key of ext.keys()) {
+    const gs = pdfDoc.context.lookup(ext.get(key));
+    if (!(gs instanceof PDFDict)) continue;
+    if (gs.has(PDFName.of('ca'))) gs.set(PDFName.of('ca'), PDFNumber.of(1));
+    if (gs.has(PDFName.of('CA'))) gs.set(PDFName.of('CA'), PDFNumber.of(1));
+  }
+  const saved = await pdfDoc.save({ useObjectStreams: false });
+  return new Uint8Array(saved);
 }
 
 /**
@@ -83,6 +139,49 @@ export function computePdfTransformMatrix(
   return { a, b, c, d, e, f, isIdentity: false };
 }
 
+/**
+ * Inverse of `computePdfTransformMatrix`: the placement (canvas box + clockwise rotation) that
+ * `m` gives to `frame`. Null when `m` has skew or a flip, which this app never writes.
+ */
+export function decomposePdfTransformMatrix(
+  m: readonly number[],
+  frame: { x: number; y: number; w: number; h: number },
+  pageHeight: number,
+): { x: number; y: number; w: number; h: number; rotation: number } | null {
+  const [a, b, c, d, e, f] = m;
+  const sx = Math.hypot(a, b);
+  const sy = Math.hypot(c, d);
+  if (sx < 1e-6 || sy < 1e-6) return null;
+  if (a * d - b * c <= 0) return null;
+  if (Math.abs(a * c + b * d) > 1e-3 * sx * sy) return null;
+  const c0x = frame.x + frame.w / 2;
+  const c0y = pageHeight - (frame.y + frame.h / 2);
+  const c1x = a * c0x + c * c0y + e;
+  const c1y = b * c0x + d * c0y + f;
+  const w = frame.w * sx;
+  const h = frame.h * sy;
+  let rotation = (-Math.atan2(b, a) * 180) / Math.PI;
+  if (rotation <= -180) rotation += 360;
+  if (Math.abs(rotation) < 1e-6) rotation = 0;
+  return { x: c1x - w / 2, y: pageHeight - c1y - h / 2, w, h, rotation };
+}
+
+function isPlacementMatrix(m: readonly number[]): boolean {
+  return decomposePdfTransformMatrix(m, { x: 0, y: 0, w: 1, h: 1 }, 0) !== null;
+}
+
+/** Untransformed artwork rectangle (doc px) for a re-imported AI layer whose file already carried an export transform. */
+export interface AiArtFrame {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export function aiArtFrame(n: Node): AiArtFrame | undefined {
+  return (n.src as { aiArtFrame?: AiArtFrame }).aiArtFrame;
+}
+
 function ocgIndexForNode(n: Node): number | null {
   const m = /^ocg-(\d+)$/.exec(n.key);
   if (m) return parseInt(m[1], 10);
@@ -90,22 +189,39 @@ function ocgIndexForNode(n: Node): number | null {
   return null;
 }
 
-/**
- * Patch layer marked content blocks in a decompressed PDF content stream.
- */
-function patchStreamLayers(
-  text: string,
-  layerPatches: Map<number, { cm?: string; gsName?: string }>,
-): string {
+/** PDF affine matrix `[a b c d e f]`: (x, y) → (a·x + c·y + e, b·x + d·y + f). */
+export type PdfMatrix = [number, number, number, number, number, number];
+
+interface LayerBlock {
+  layerIndex: number;
+  bdcStart: number;
+  bdcEnd: number;
+  emcStart: number;
+  emcEnd: number;
+}
+
+const PDF_NUM = '-?\\d+(?:\\.\\d+)?';
+const PDF_CM = `(?:(${PDF_NUM}) (${PDF_NUM}) (${PDF_NUM}) (${PDF_NUM}) (${PDF_NUM}) (${PDF_NUM}) cm\\n)?`;
+/** Exact wrapper written by `patchStreamLayers` inside a layer block / around a stream without blocks. */
+const INJECTED_IN_BLOCK_RE = new RegExp(`^\\nq\\n(/GS_L_\\d+ gs\\n)?${PDF_CM}([\\s\\S]*)\\nQ\\n$`);
+const INJECTED_IN_STREAM_RE = new RegExp(`^q\\n(/GS_L_\\d+ gs\\n)?${PDF_CM}([\\s\\S]*)\\nQ$`);
+
+/** Strip a transform/opacity wrapper previously written by this exporter, if present. */
+function parseInjectedWrapper(
+  segment: string,
+  inBlock: boolean,
+): { matrix: PdfMatrix | null; body: string } | null {
+  const m = (inBlock ? INJECTED_IN_BLOCK_RE : INJECTED_IN_STREAM_RE).exec(segment);
+  if (!m || (!m[1] && m[2] === undefined)) return null;
+  const matrix =
+    m[2] === undefined ? null : (m.slice(2, 8).map(Number) as PdfMatrix);
+  if (matrix && !isPlacementMatrix(matrix)) return null;
+  return { matrix, body: m[8] };
+}
+
+function findLayerBlocks(text: string): LayerBlock[] {
   const bdcRegex = /(?:\/(?:OC|Layer)\s+\/MC(\d+)\s+BDC)/g;
-  interface Block {
-    layerIndex: number;
-    bdcStart: number;
-    bdcEnd: number;
-    emcStart: number;
-    emcEnd: number;
-  }
-  const blocks: Block[] = [];
+  const blocks: LayerBlock[] = [];
 
   let match: RegExpExecArray | null;
   while ((match = bdcRegex.exec(text)) !== null) {
@@ -139,12 +255,45 @@ function patchStreamLayers(
       bdcRegex.lastIndex = emcEnd;
     }
   }
+  return blocks;
+}
+
+/**
+ * Layer transforms written by a previous export of this app, keyed by layer index
+ * (layer 0 for streams without layer blocks).
+ */
+export function readInjectedLayerTransforms(text: string): {
+  transforms: Map<number, PdfMatrix>;
+  blockCount: number;
+} {
+  const transforms = new Map<number, PdfMatrix>();
+  const blocks = findLayerBlocks(text);
+  if (blocks.length === 0) {
+    const w = parseInjectedWrapper(text, false);
+    if (w?.matrix) transforms.set(0, w.matrix);
+  }
+  for (const b of blocks) {
+    const w = parseInjectedWrapper(text.slice(b.bdcEnd, b.emcStart), true);
+    if (w?.matrix && !transforms.has(b.layerIndex)) transforms.set(b.layerIndex, w.matrix);
+  }
+  return { transforms, blockCount: blocks.length };
+}
+
+/**
+ * Patch layer marked content blocks in a decompressed PDF content stream.
+ * Every layer present in `layerPatches` has any earlier export wrapper replaced, not nested.
+ */
+function patchStreamLayers(
+  text: string,
+  layerPatches: Map<number, { cm?: string; gsName?: string }>,
+): string {
+  const blocks = findLayerBlocks(text);
 
   if (blocks.length === 0) {
     // Single layer / no marked content tags: apply layer 0 patch to entire stream
     const p0 = layerPatches.get(0);
     if (!p0) return text;
-    let inner = text;
+    const inner = parseInjectedWrapper(text, false)?.body ?? text;
     let prefix = '';
     let suffix = '';
     if (p0.cm || p0.gsName) {
@@ -164,15 +313,15 @@ function patchStreamLayers(
     if (!patch) continue;
 
     const before = result.slice(0, block.bdcEnd);
-    const inner = result.slice(block.bdcEnd, block.emcStart);
+    const segment = result.slice(block.bdcEnd, block.emcStart);
+    const inner = parseInjectedWrapper(segment, true)?.body ?? segment;
     const after = result.slice(block.emcStart);
 
-    let prefix = '';
-    let suffix = '';
-    if (patch.gsName || patch.cm) {
-      prefix += 'q\n';
-      suffix = '\nQ';
+    if (!patch.gsName && !patch.cm) {
+      result = before + inner + after;
+      continue;
     }
+    let prefix = 'q\n';
     if (patch.gsName) {
       prefix += `/${patch.gsName} gs\n`;
     }
@@ -180,7 +329,7 @@ function patchStreamLayers(
       prefix += `${patch.cm}\n`;
     }
 
-    result = before + '\n' + prefix + inner + suffix + '\n' + after;
+    result = before + '\n' + prefix + inner + '\nQ' + '\n' + after;
   }
 
   return result;
@@ -206,7 +355,7 @@ export async function exportAiWithPdfLib(doc: Doc): Promise<ExportAiResult> {
   }
 
   const page = pdfDoc.getPage(0);
-  const { width: pageW, height: pageH } = page.getSize();
+  const { height: pageH } = page.getSize();
 
   // Synchronize stub layer properties
   for (const n of walk(doc.roots)) {
@@ -257,12 +406,13 @@ export async function exportAiWithPdfLib(doc: Doc): Promise<ExportAiResult> {
     const node = leavesByIndex.get(i) ?? leafNodes[i];
     const nodeIndex = leavesByIndex.has(i) ? i : ocgIndexForNode(node) ?? i;
 
-    // 1. Transform Matrix
+    // 1. Transform Matrix (from the untransformed artwork frame to the node's current placement)
+    const frame = aiArtFrame(node) ?? { x: node.ox, y: node.oy, w: node.ow, h: node.oh };
     const t = computePdfTransformMatrix(
-      node.ox,
-      node.oy,
-      node.ow,
-      node.oh,
+      frame.x,
+      frame.y,
+      frame.w,
+      frame.h,
       node.x,
       node.y,
       node.w,
@@ -277,9 +427,9 @@ export async function exportAiWithPdfLib(doc: Doc): Promise<ExportAiResult> {
       cm = `${formatPdfNumber(t.a)} ${formatPdfNumber(t.b)} ${formatPdfNumber(t.c)} ${formatPdfNumber(t.d)} ${formatPdfNumber(t.e)} ${formatPdfNumber(t.f)} cm`;
     }
 
-    // 2. Opacity
+    // 2. Opacity (per-layer GS_L only when the file has no GS0 — otherwise GS0 above carries opacity)
     let gsName: string | undefined;
-    if (Math.abs(node.opacity - 1.0) > 1e-3) {
+    if (Math.abs(node.opacity - 1.0) > 1e-3 && !gs0Ref) {
       gsName = `GS_L_${nodeIndex}`;
       const gsDict = pdfDoc.context.obj({
         Type: 'ExtGState',
@@ -289,7 +439,7 @@ export async function exportAiWithPdfLib(doc: Doc): Promise<ExportAiResult> {
       extGStateDict.set(PDFName.of(gsName), pdfDoc.context.register(gsDict));
     }
 
-    if (cm || gsName) {
+    if (cm || gsName || ocgIndexForNode(node) !== null) {
       layerPatches.set(nodeIndex, { cm, gsName });
     }
   }
@@ -409,12 +559,16 @@ export async function exportAiWithPdfLib(doc: Doc): Promise<ExportAiResult> {
         decompressed = originalRaw;
       }
 
-      const text = new TextDecoder('latin1').decode(decompressed);
-      const patchedText = patchStreamLayers(text, layerPatches);
+      const originalText = new TextDecoder('latin1').decode(decompressed);
+      const shapePatch = patchAiShapeColorsInStream(originalText, doc);
+      notes.push(...shapePatch.notes);
+      const patchedText = patchStreamLayers(shapePatch.text, layerPatches);
 
-      const newStream = pdfDoc.context.flateStream(new TextEncoder().encode(patchedText));
-      const newRef = pdfDoc.context.register(newStream);
-      page.node.set(PDFName.of('Contents'), newRef);
+      if (patchedText !== originalText) {
+        const newStream = pdfDoc.context.flateStream(new TextEncoder().encode(patchedText));
+        const newRef = pdfDoc.context.register(newStream);
+        page.node.set(PDFName.of('Contents'), newRef);
+      }
     }
   }
 
@@ -427,7 +581,7 @@ export async function exportAiWithPdfLib(doc: Doc): Promise<ExportAiResult> {
     );
   }
 
-  const savedBytes = await pdfDoc.save();
+  const savedBytes = await pdfDoc.save({ useObjectStreams: false });
   return {
     bytes: savedBytes.buffer as ArrayBuffer,
     notes,

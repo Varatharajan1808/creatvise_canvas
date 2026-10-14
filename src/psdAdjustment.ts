@@ -3,12 +3,9 @@ import type {
   BrightnessAdjustment,
   BlackAndWhiteAdjustment,
   ColorBalanceAdjustment,
-  ColorBalanceValues,
   ColorLookupAdjustment,
   CurvesAdjustment,
-  CurvesAdjustmentChannel,
   HueSaturationAdjustment,
-  HueSaturationAdjustmentChannel,
   LayerMaskData,
   LevelsAdjustment,
   LevelsAdjustmentChannel,
@@ -18,20 +15,16 @@ import type {
 import { maskAlphaCanvas } from './psdComposite';
 import {
   evaluateVibranceFastInto,
-  evaluateVibranceInto,
   prepareVibranceParams,
 } from './psdAdjustmentVibrance';
 import {
   evaluatePhotoFilterFastInto,
-  evaluatePhotoFilterInto,
   preparePhotoFilterParams,
 } from './psdAdjustmentPhotoFilter';
 import {
   getFastLutSampler,
   resolveColorLookupLut,
-  sample3dLutInto,
   type FastLutSampler,
-  type Lut3D,
 } from './psdAdjustmentColorLookup';
 import {
   buildCurvesLut,

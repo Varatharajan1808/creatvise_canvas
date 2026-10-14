@@ -2,6 +2,7 @@ import type { Layer } from 'ag-psd';
 import type { Doc, Kind, Node } from './model';
 import { effOpacity, isLocked, walk } from './model';
 import { isSupportedAdjustment } from './psdAdjustment';
+import { activeDropShadow, activeOuterGlow, activeStroke, enabledLayerEffectKeys, hasUnsupportedLayerEffects, SIMULATED_LAYER_EFFECT_KEYS } from './psdLayerEffects';
 
 /** Classify PSD layer for the editor model (may differ from raw Photoshop feature tags). */
 export function classifyPsdNodeKind(l: Layer, isGroup: boolean): Kind {
@@ -72,7 +73,27 @@ export function psdLayerType(l: Layer): string {
 
 export function describeUnsupportedLayer(l: Layer): string[] {
   const u: string[] = [];
-  if (l.effects) u.push('Layer effects: kept in the file, not shown on canvas');
+  if (l.effects) {
+    const unsupported = enabledLayerEffectKeys(l.effects).filter((k) => !SIMULATED_LAYER_EFFECT_KEYS.has(k));
+    const unsupportedStroke = l.effects.stroke?.find(
+      (s) => s.enabled !== false && ((s.fillType && s.fillType !== 'color') || s.gradient || s.pattern),
+    );
+    if (unsupportedStroke) {
+      unsupported.push(`stroke: ${unsupportedStroke.fillType ?? 'gradient/pattern'}`);
+    }
+    if (hasUnsupportedLayerEffects(l.effects)) {
+      u.push(`Layer effects (${unsupported.join(', ') || 'other'}): kept in the file, not shown on canvas`);
+    }
+    if (activeDropShadow(l.effects)) {
+      u.push('Drop shadow: drawn in the 2D layer preview (approximate; not baked into layer pixels)');
+    }
+    if (activeOuterGlow(l.effects)) {
+      u.push('Outer glow: drawn in the 2D layer preview (approximate; not baked into layer pixels)');
+    }
+    if (activeStroke(l.effects)) {
+      u.push('Stroke: drawn in the 2D layer preview (approximate; not baked into layer pixels)');
+    }
+  }
   if (l.mask) {
     if (l.mask.canvas) u.push('Raster mask: applied in composite preview when enabled; kept in the file on export');
     else u.push('Raster mask: metadata kept in the file, not applied (mask pixels unavailable)');

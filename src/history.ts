@@ -17,6 +17,13 @@ export class History {
     this.onChange();
   }
 
+  /** Clear all undo and redo history. */
+  clear() {
+    this.undoStack.length = 0;
+    this.redoStack.length = 0;
+    this.onChange();
+  }
+
   undo() {
     const c = this.undoStack.pop();
     if (!c) return;

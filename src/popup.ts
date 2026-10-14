@@ -1,3 +1,5 @@
+import { escapeHtml } from './utils';
+
 export type ToastType = 'info' | 'success' | 'warning' | 'error';
 
 export interface AlertModalOptions {
@@ -569,6 +571,4 @@ export function folderConfirmModal(opts: {
   }).then((idx) => idx !== null && idx.length > 0);
 }
 
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-}
+

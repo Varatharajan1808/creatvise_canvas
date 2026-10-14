@@ -1,24 +1,29 @@
 import './style.css';
+import { escapeHtml } from './utils';
 import { Viewport } from './viewport';
 import { History, type Command } from './history';
-import { type Doc, type Node, leaves, walk, effVisible, effOpacity, isLocked, nodeBounds, docOf } from './model';
+import { type Doc, type Node, walk, isLocked, nodeBounds, docOf } from './model';
 import {
-  createSamplePsd,
+  fetchPublicPsd,
   importPsd,
   markNodePreviewContentChanged,
   refreshPsdPreviewModeAfterEdit,
 } from './psd';
-import { hitTestCanvasLayer, isCanvasPickTarget, readCanvasAlpha } from './canvasHitTest';
+import { hitTestCanvasLayer, isPointInLayer } from './canvasHitTest';
 import {
   canEditPsdLayerPosition,
   leavesForPositionEdit,
 } from './psdLayerInfo';
 import { fetchPublicAi } from './ai';
 import {
+  canDeleteLayer,
   canDuplicateLayer,
   canExportDocument,
+  canResizeRotate,
+  DELETE_BLOCKED_MESSAGE,
   duplicateBlockedMessage,
   formatFromFileName,
+  RESIZE_ROTATE_BLOCKED_MESSAGE,
   unsupportedDocSubtitle,
 } from './formatCaps';
 import { importDocument } from './formatImport';
@@ -32,10 +37,11 @@ import {
   sourceSiblingsForParent,
 } from './sourceTree';
 import { closeDocCommand, openDocsCommand } from './docHistory';
+import { docUsesFullDocPreview } from './psdComposite';
 import { renderLayers, renderProps, type PanelHandlers } from './panel';
 import { saveWorkspace, loadWorkspace, clearAll } from './storage';
 import { serializeDoc, applySavedDoc, type SavedWorkspace } from './workspace';
-import { applyText, applyShapeColor, applyShapeBorder, captureState, restoreState, getTextInfo, shapeColorBlockReason, hexToRgb, type LayerState } from './edit';
+import { applyText, applyShapeColor, applyShapeBorder, applyBrightnessContrast, captureState, restoreState, getTextInfo, shapeColorBlockReason, hexToRgb, type LayerState } from './edit';
 import { toast, alertModal, confirmModal, promptModal, infoListModal, folderImportModal } from './popup';
 import {
   collectFilesFromDirectoryPicker,
@@ -56,7 +62,6 @@ const hist = new History();
 const docs: Doc[] = [];
 let selected: Node | null = null;
 
-const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 
 let lastEditWarn = '';
 let lastEditWarnAt = 0;
@@ -124,6 +129,7 @@ function deleteNode(n: Node | null) {
   if (!n) { toast('Select a layer to delete.', 'warning'); return; }
   const doc = docOf(n, docs);
   if (!doc) return;
+  if (!canDeleteLayer(doc)) { toast(DELETE_BLOCKED_MESSAGE, 'warning'); return; }
   if (isLocked(n)) { toast('This layer is locked. Unlock it to delete it.', 'warning'); return; }
   selected = null;
   hist.exec(deleteCommand(doc, n));
@@ -283,6 +289,7 @@ function closeDoc(doc: Doc) {
 
 // ---------- text and shape colour ----------
 let pending: { node: Node; before: LayerState } | null = null;
+let posPending: { node: Node; before: Array<[Node, number, number]> } | null = null;
 
 function contentCommand(n: Node, before: LayerState, after: LayerState): Command {
   return {
@@ -366,15 +373,14 @@ function editShapeBorder(n: Node, patch: { enabled?: boolean; width?: number; co
 async function replaceImage(n: Node, file: File) {
   if (n.kind !== 'raster') return;
   if (isLocked(n)) { toast('This layer is locked. Unlock it to replace its image.', 'warning'); return; }
+  const url = URL.createObjectURL(file);
   try {
     const img = new Image();
-    const url = URL.createObjectURL(file);
     await new Promise((resolve, reject) => {
       img.onload = resolve;
       img.onerror = reject;
       img.src = url;
     });
-    URL.revokeObjectURL(url);
     const c = document.createElement('canvas');
     c.width = img.naturalWidth || img.width;
     c.height = img.naturalHeight || img.height;
@@ -405,6 +411,8 @@ async function replaceImage(n: Node, file: File) {
     toast(`Replaced image in "${n.name}". Press Ctrl+Z to undo.`, 'success');
   } catch {
     toast('Could not load the selected image file.', 'warning');
+  } finally {
+    URL.revokeObjectURL(url);
   }
 }
 
@@ -426,6 +434,8 @@ function transformCommand(n: Node, before: Xform, after: Xform): Command {
 /** Resize/rotate is limited to image (raster) layers for now. Says why when it can't, unless quiet. */
 function canTransform(n: Node, quiet = false): boolean {
   const no = (msg: string) => { if (!quiet) warnEditOnce(msg); return false; };
+  const doc = docOf(n, docs);
+  if (doc && !canResizeRotate(doc)) return no(RESIZE_ROTATE_BLOCKED_MESSAGE);
   if (n.kind === 'group') return no('Resize and rotate work on image layers. Select a layer inside the group.');
   if (n.kind !== 'raster') return no('Resizing and rotating text and shape layers is not supported yet.');
   if (isLocked(n)) return no('This layer is locked. Unlock it to resize or rotate it.');
@@ -459,14 +469,80 @@ function moveBy(n: Node, dx: number, dy: number) {
   }
 }
 
+function applyPositions(list: Array<[Node, number, number]>) {
+  list.forEach(([ln, x, y]) => { ln.x = x; ln.y = y; });
+}
+
+function parseCoord(raw: string): number | null {
+  const t = raw.trim();
+  if (t === '' || t === '-' || t === '+') return null;
+  const v = Number(t);
+  return Number.isFinite(v) ? v : null;
+}
+
+function positionsEqual(a: Array<[Node, number, number]>, b: Array<[Node, number, number]>) {
+  if (a.length !== b.length) return false;
+  return a.every(([n, x, y], i) => b[i][0] === n && b[i][1] === x && b[i][2] === y);
+}
+
+function previewPositionScene(n: Node) {
+  drawOverlay();
+  const d = docOf(n, docs);
+  if (!d) return;
+  if (docUsesFullDocPreview(d)) {
+    vp.requestRender();
+    return;
+  }
+  vp.syncDoc(d);
+}
+
+function commitPosPending() {
+  if (!posPending) return;
+  const { node, before } = posPending;
+  posPending = null;
+  const after = snapshot(node);
+  if (positionsEqual(before, after)) return;
+  hist.exec(positionsCommand('Move', before, after), true);
+}
+
+/** Live preview while typing (commit=false); one undo step on Enter/blur (commit=true). */
+function editPosition(n: Node, xRaw: string, yRaw: string, commit: boolean) {
+  if (!canMove(n)) {
+    if (commit) refresh();
+    return;
+  }
+  const bx = parseCoord(xRaw);
+  const by = parseCoord(yRaw);
+  if (bx === null && by === null) {
+    if (commit && posPending) {
+      applyPositions(posPending.before);
+      posPending = null;
+      psdEdited(n);
+      refresh();
+    }
+    return;
+  }
+  if (!posPending || posPending.node !== n) posPending = { node: n, before: snapshot(n) };
+  applyPositions(posPending.before);
+  const b = nodeBounds(n);
+  if (!b) return;
+  const tx = bx ?? Math.round(b.x);
+  const ty = by ?? Math.round(b.y);
+  const nb = nodeBounds(n)!;
+  moveBy(n, Math.round(tx - nb.x), Math.round(ty - nb.y));
+  psdEdited(n);
+  if (commit) commitPosPending();
+  else previewPositionScene(n);
+}
+
 /** True after the first pointer delta while transforming — avoids leaving file-composite on click-only selection. */
 let psdLivePreviewActivated = false;
 
+/** Callers sync the scene right after. */
 function activatePsdLivePreviewForEdit(n: Node) {
   if (psdLivePreviewActivated) return;
   psdLivePreviewActivated = true;
   psdEdited(n);
-  syncAll();
 }
 
 // ---------- panel handlers ----------
@@ -499,6 +575,10 @@ const handlers: PanelHandlers = {
   editText,
   editShapeColor,
   editShapeBorder,
+  editBrightnessContrast: (n, patch, commit) => {
+    if (isLocked(n)) { toast('This layer is locked. Unlock it to edit it.', 'warning'); refresh(); return; }
+    editContent(n, () => applyBrightnessContrast(n, patch), commit);
+  },
   replaceImage,
   setTransform: (n, t) => {
     if (!canTransform(n)) { refresh(); return; }
@@ -510,13 +590,7 @@ const handlers: PanelHandlers = {
     const rotation = t.rotation !== undefined ? normAngle(t.rotation) : n.rotation;
     hist.exec(transformCommand(n, before, { x: cx - w / 2, y: cy - h / 2, w, h, rotation }));
   },
-  setPosition: (n, x, y) => {
-    const b = nodeBounds(n);
-    if (!b || !canMove(n)) { refresh(); return; }
-    const before = snapshot(n);
-    moveBy(n, Math.round(x - b.x), Math.round(y - b.y));
-    hist.exec(positionsCommand('Move', before, snapshot(n)), true);
-  },
+  editPosition,
   showUnsupportedDoc: (doc) => {
     const unsupportedLayers = [...walk(doc.roots)].filter((n) => n.unsupported.length);
     infoListModal({
@@ -576,17 +650,18 @@ function psdEdited(n: Node) {
   if (d?.format === 'psd') refreshPsdPreviewModeAfterEdit(d);
 }
 
-function refresh() {
+/** Pass syncScene=false when only the selection changed: syncing re-composites edited PSDs, which can take seconds. */
+function refresh(syncScene = true) {
   if (selected && !docOf(selected, docs)) selected = null; // e.g. deleted, then undo/redo
-  syncAll();
+  if (syncScene) syncAll();
   renderLayers($('layers'), { docs, selected }, handlers);
   renderProps($('props'), { docs, selected }, handlers);
   ($('btn-undo') as HTMLButtonElement).disabled = !hist.canUndo;
   ($('btn-redo') as HTMLButtonElement).disabled = !hist.canRedo;
-  ($('btn-delete') as HTMLButtonElement).disabled = !selected;
-  const dupDoc = selected ? docOf(selected, docs) : null;
+  const selDoc = selected ? docOf(selected, docs) : null;
+  ($('btn-delete') as HTMLButtonElement).disabled = !selected || !selDoc || !canDeleteLayer(selDoc);
   ($('btn-duplicate') as HTMLButtonElement).disabled =
-    !selected || !dupDoc || !canDuplicateLayer(dupDoc);
+    !selected || !selDoc || !canDuplicateLayer(selDoc);
   ($('btn-clear') as HTMLButtonElement).disabled = docs.length === 0;
   const exportDoc = selected ? docOf(selected, docs) : docs.length === 1 ? docs[0] : null;
   ($('btn-export') as HTMLButtonElement).disabled =
@@ -599,8 +674,9 @@ hist.onChange = () => { refresh(); scheduleSave(); };
 
 function select(n: Node | null) {
   if (pending && pending.node !== n) commitPending();
+  if (posPending && posPending.node !== n) commitPosPending();
   selected = n;
-  refresh();
+  refresh(false);
 }
 
 const labels = $('labels');
@@ -655,7 +731,7 @@ function drawOverlay() {
   // selection box
   const d = selected ? docOf(selected, docs) : null;
   const b = selected ? nodeBounds(selected) : null;
-  if (!selected || !d || !b) { selbox.style.display = 'none'; }
+  if (!selected || !d || !b || b.w <= 0 || b.h <= 0) { selbox.style.display = 'none'; }
   else {
     const rot = selected.kind === 'group' ? 0 : selected.rotation;
     const c = vp.docToScreen(d, b.x + b.w / 2, b.y + b.h / 2);
@@ -689,37 +765,8 @@ function drawOverlay() {
 vp.onFrame = () => { drawOverlay(); if (viewChanged()) scheduleSave(); };
 
 // ---------- hit testing ----------
-function alphaAt(c: HTMLCanvasElement, x: number, y: number): number {
-  return readCanvasAlpha(c, x, y);
-}
-
-function canvasPickTarget(d: Doc, n: Node): boolean {
-  return isCanvasPickTarget(d, n);
-}
-
-function pointInNode(doc: Doc, n: Node, px: number, py: number): boolean {
-  if (effOpacity(n) <= 0) return false;
-  const b = nodeBounds(n);
-  if (!b || b.w <= 0 || b.h <= 0) return false;
-  if (n.kind !== 'group' && Math.abs(n.rotation) > 0.01) {
-    const th = (n.rotation * Math.PI) / 180;
-    const dx = px - (n.x + n.w / 2);
-    const dy = py - (n.y + n.h / 2);
-    const lx = dx * Math.cos(th) + dy * Math.sin(th) + n.w / 2;
-    const ly = -dx * Math.sin(th) + dy * Math.cos(th) + n.h / 2;
-    if (lx < 0 || ly < 0 || lx >= n.w || ly >= n.h) return false;
-    if (n.canvas) {
-      return alphaAt(n.canvas, (lx * n.canvas.width) / n.w, (ly * n.canvas.height) / n.h) > 8;
-    }
-    return lx >= 0 && ly >= 0 && lx < n.w && ly < n.h;
-  }
-  if (px < b.x || py < b.y || px >= b.x + b.w || py >= b.y + b.h) return false;
-  if (n.kind !== 'group' && n.canvas) {
-    const lx = ((px - n.x) * n.canvas.width) / n.w;
-    const ly = ((py - n.y) * n.canvas.height) / n.h;
-    return alphaAt(n.canvas, lx, ly) > 8;
-  }
-  return true;
+function pointInNode(n: Node, px: number, py: number): boolean {
+  return isPointInLayer(n, px, py);
 }
 
 function hitTest(sx: number, sy: number): Node | null {
@@ -868,7 +915,7 @@ stage.addEventListener('pointerdown', (e) => {
     const selDoc = docOf(selected, docs);
     if (selDoc && canEditPsdLayerPosition(selected) && !isLocked(selected)) {
       const p = vp.screenToDoc(selDoc, sx, sy);
-      if (pointInNode(selDoc, selected, p.x, p.y)) {
+      if (pointInNode(selected, p.x, p.y)) {
         mode = 'move';
         dragBefore = snapshot(selected);
         return;
@@ -1149,19 +1196,35 @@ if (folderInput) {
 }
 
 $('btn-sample').onclick = () => {
-  const n = docs.filter((d) => d.name.startsWith('sample') && d.format === 'psd').length;
-  recordOpened([addDoc(importPsd(`sample${n ? `-${n + 1}` : ''}.psd`, createSamplePsd()))]);
+  void (async () => {
+    const btn = $('btn-sample') as HTMLButtonElement | null;
+    if (btn) btn.disabled = true;
+    toast('Loading sample 10960916.psd (264MB)...', 'info');
+    try {
+      const doc = await fetchPublicPsd('/10960916.psd', '10960916.psd');
+      recordOpened([addDoc(doc)]);
+    } catch (err) {
+      alertModal({
+        title: 'Sample PSD Error',
+        message: (err as Error).message,
+        type: 'error',
+      });
+      console.error(err);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  })();
 };
 
 const btnSampleAi = $('btn-sample-ai');
 if (btnSampleAi) {
   btnSampleAi.onclick = () => {
     void (async () => {
+      const btn = $('btn-sample-ai') as HTMLButtonElement | null;
+      if (btn) btn.disabled = true;
+      toast('Loading sample.ai...', 'info');
       try {
-        const n = docs.filter((d) => d.name.includes('sample') && d.format === 'ai').length;
-        const path = n % 2 === 0 ? '/sample.ai' : '/DarkTech_Screen.ai';
-        const label = path.slice(1);
-        recordOpened([addDoc(await fetchPublicAi(path, label))]);
+        recordOpened([addDoc(await fetchPublicAi('/sample.ai', 'sample.ai'))]);
       } catch (err) {
         alertModal({
           title: 'Sample AI Error',
@@ -1169,6 +1232,8 @@ if (btnSampleAi) {
           type: 'error',
         });
         console.error(err);
+      } finally {
+        if (btn) btn.disabled = false;
       }
     })();
   };
@@ -1437,6 +1502,8 @@ $('btn-clear').onclick = async () => {
   if (!confirmed) return;
   persistOff = true;
   clearTimeout(saveTimer);
+  hist.clear();
+  docs.length = 0;
   try { await clearAll(); } catch (err) { console.error(err); }
   toast('Workspace cleared. Reloading...', 'info');
   window.location.reload();

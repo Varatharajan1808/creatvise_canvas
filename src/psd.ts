@@ -1,5 +1,5 @@
 import { readPsd, writePsd, type Layer, type Psd } from 'ag-psd';
-import { type Doc, type Node, type Kind, walk, leaves, effVisible, effOpacity } from './model';
+import { type Doc, type Node, walk, leaves, effVisible, effOpacity } from './model';
 import {
   analyzePsdPreview,
   copyFileComposite,
@@ -112,7 +112,7 @@ export function importPsd(name: string, buf: ArrayBuffer): Doc {
     }
   } else if (docNeedsCompositePreview(doc)) {
     doc.warnings.push(
-      'This file uses blend modes, clipping, and/or masks. Preview redraws them from the layers in 2D.',
+      'This file uses blend modes, clipping, masks, and/or layer effects (drop shadow, outer glow, stroke). Preview redraws them from the layers in 2D.',
     );
   }
 
@@ -304,4 +304,11 @@ export function createSamplePsd(): ArrayBuffer {
   };
   psd.canvas = mk(W, H, (g) => { g.fillStyle = '#f4f1ea'; g.fillRect(0, 0, W, H); });
   return writePsd(psd);
+}
+
+/** Fetch a public sample `.psd` from public/. */
+export async function fetchPublicPsd(path: string, displayName: string): Promise<Doc> {
+  const res = await fetch(path);
+  if (!res.ok) throw new Error(`Could not load ${path} (${res.status}).`);
+  return importPsd(displayName, await res.arrayBuffer());
 }

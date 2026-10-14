@@ -12,6 +12,9 @@ export interface FormatCapabilities {
   editText: boolean;
   editShape: boolean;
   replaceImage: boolean;
+  /** Resize/rotate handles and numeric W/H/rotation; per-layer rules in `canTransform` still apply. */
+  resizeRotate: boolean;
+  deleteLayer: boolean;
 }
 
 const CAPS: Record<SupportedImportFormat, FormatCapabilities> = {
@@ -22,14 +25,18 @@ const CAPS: Record<SupportedImportFormat, FormatCapabilities> = {
     editText: true,
     editShape: true,
     replaceImage: true,
+    resizeRotate: true,
+    deleteLayer: true,
   },
   ai: {
     export: true,
     duplicateNativeTree: false,
     folderBatchImport: true,
     editText: false,
-    editShape: false,
+    editShape: true,
     replaceImage: false,
+    resizeRotate: true,
+    deleteLayer: true,
   },
 };
 
@@ -55,10 +62,18 @@ export function canDuplicateLayer(doc: Doc): boolean {
   return capabilitiesForDoc(doc)?.duplicateNativeTree ?? false;
 }
 
-/** Whether layer opacity is written into exported file bytes (PSD always; AI when ExtGState present). */
+export function canResizeRotate(doc: Doc): boolean {
+  return capabilitiesForDoc(doc)?.resizeRotate ?? false;
+}
+
+export function canDeleteLayer(doc: Doc): boolean {
+  return capabilitiesForDoc(doc)?.deleteLayer ?? false;
+}
+
+/** Whether layer opacity is written into exported file bytes (PSD always; AI via ExtGState /ca). */
 export function opacityExportsToFile(doc: Doc): boolean {
   if (doc.format === 'psd') return true;
-  if (doc.format === 'ai') return doc.ai?.hasExtGStateOpacity ?? false;
+  if (doc.format === 'ai') return true;
   return false;
 }
 
@@ -98,3 +113,7 @@ export function duplicateBlockedMessage(doc: Doc): string {
   }
   return 'Duplicating layers in this file format is not supported yet.';
 }
+
+export const RESIZE_ROTATE_BLOCKED_MESSAGE = 'Resizing and rotating layers in this file format is not supported yet.';
+
+export const DELETE_BLOCKED_MESSAGE = 'Deleting layers in this file format is not supported yet.';

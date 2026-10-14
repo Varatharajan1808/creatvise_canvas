@@ -72,8 +72,22 @@ const has = (doc: Doc, f: string) => features(doc).includes(f);
 {
   const doc = build();
   const blue = byName(doc, 'Blue');
-  blue.src.effects = { dropShadow: [{ enabled: true, opacity: 0.5 }] };
-  log('enabled-effect-detected', has(doc, 'layer effects'), JSON.stringify(features(doc)));
+  blue.src.effects = { dropShadow: [{ enabled: true, opacity: 0.5, distance: { units: 'Pixels', value: 4 }, size: { units: 'Pixels', value: 4 } }] };
+  doc.psdPreviewMode = C.choosePsdPreviewMode(doc);
+  log('drop-shadow-not-unsimulated', !has(doc, 'layer effects'), JSON.stringify(features(doc)));
+  log('drop-shadow-uses-composite', doc.psdPreviewMode === 'composite', String(doc.psdPreviewMode));
+  blue.src.effects = { outerGlow: { enabled: true, opacity: 0.5, size: { units: 'Pixels', value: 4 } } };
+  doc.psdPreviewMode = C.choosePsdPreviewMode(doc);
+  log('outer-glow-not-unsimulated', !has(doc, 'layer effects'), JSON.stringify(features(doc)));
+  log('outer-glow-uses-composite', doc.psdPreviewMode === 'composite', String(doc.psdPreviewMode));
+  blue.src.effects = { stroke: [{ enabled: true, size: { units: 'Pixels', value: 3 } }] };
+  doc.psdPreviewMode = C.choosePsdPreviewMode(doc);
+  log('stroke-not-unsimulated', !has(doc, 'layer effects'), JSON.stringify(features(doc)));
+  log('stroke-uses-composite', doc.psdPreviewMode === 'composite', String(doc.psdPreviewMode));
+  blue.src.effects = { innerShadow: [{ enabled: true }] };
+  log('other-effect-still-unsimulated', has(doc, 'layer effects'), JSON.stringify(features(doc)));
+  blue.src.effects = { stroke: [{ enabled: true, fillType: 'gradient' }] };
+  log('gradient-stroke-still-unsimulated', has(doc, 'layer effects'), JSON.stringify(features(doc)));
   blue.src.effects = { dropShadow: [{ enabled: false }], stroke: [{ enabled: false }] };
   log('disabled-effect-entries-ignored', !has(doc, 'layer effects'), JSON.stringify(features(doc)));
   blue.src.effects = { disabled: true, dropShadow: [{ enabled: true }] };
@@ -134,31 +148,34 @@ const withEffects = (): Layer[] => {
 };
 {
   const doc = build(withEffects());
-  log('effects-file-written-and-detected', has(doc, 'layer effects'), JSON.stringify(features(doc)));
-  log('effects-file-opens-on-embedded', doc.psdPreviewMode === 'file-composite' && C.isShowingEmbeddedFileComposite(doc), String(doc.psdPreviewMode));
-  log('effects-file-warning', doc.warnings.some((w) => w.includes('layer effects') && w.includes('embedded Photoshop composite')), JSON.stringify(doc.warnings));
+  log('drop-shadow-file-not-unsimulated', !has(doc, 'layer effects'), JSON.stringify(features(doc)));
+  log('drop-shadow-file-uses-composite', doc.psdPreviewMode === 'composite', String(doc.psdPreviewMode));
+  log('drop-shadow-no-embedded-only-warning', !doc.warnings.some((w) => w.includes('layer effects') && w.includes('embedded Photoshop composite')), JSON.stringify(doc.warnings));
 }
 {
   const doc = build(withEffects(), mk(W, H, () => {}));
-  const a = C.analyzePsdPreview(doc);
-  log('transparent-composite-is-blank', a.composite === 'blank' && doc.psdPreviewMode !== 'file-composite' && !doc.psdFileCompositeBase, `${a.composite} mode=${doc.psdPreviewMode}`);
-  log('blank-composite-warning', doc.warnings.some((w) => w.includes('blank embedded composite')), JSON.stringify(doc.warnings));
+  const comp = R.embeddedCompositeStatus(doc, () => C.composeDocPreview(doc));
+  log('transparent-composite-is-blank', comp === 'blank' && doc.psdPreviewMode === 'composite', `${comp} mode=${doc.psdPreviewMode}`);
+  log('blank-composite-warning', doc.warnings.some((w) => w.includes('drop shadow')), JSON.stringify(doc.warnings));
 }
 {
   const doc = build(withEffects(), fill(W, H, '#ffffff'));
-  log('flat-placeholder-composite-is-blank', C.analyzePsdPreview(doc).composite === 'blank', String(C.analyzePsdPreview(doc).composite));
+  const flatComp = R.embeddedCompositeStatus(doc, () => C.composeDocPreview(doc));
+  log('flat-placeholder-composite-is-blank', flatComp === 'blank', String(flatComp));
 }
 {
   const flat = [rect('BG', 0, 0, W, H, '#ffffff', { effects: { dropShadow: [{ enabled: true }] } })];
   const doc = build(flat, fill(W, H, '#ffffff'));
-  log('flat-design-composite-is-usable', C.analyzePsdPreview(doc).composite === 'usable' && doc.psdPreviewMode === 'file-composite', `${C.analyzePsdPreview(doc).composite} mode=${doc.psdPreviewMode}`);
+  log('flat-design-drop-shadow-composite', doc.psdPreviewMode === 'composite', `${C.analyzePsdPreview(doc).composite} mode=${doc.psdPreviewMode}`);
 }
 {
   const doc = build(withEffects());
   doc.psd!.imageResources = { ...(doc.psd!.imageResources ?? {}), versionInfo: { hasRealMergedData: false, writerName: 'x', readerName: 'x', fileVersion: 1 } };
-  log('not-real-composite-rejected', C.analyzePsdPreview(doc).composite === 'not-real' && C.analyzePsdPreview(doc).mode !== 'file-composite', String(C.analyzePsdPreview(doc).composite));
+  const notReal = R.embeddedCompositeStatus(doc, () => C.composeDocPreview(doc));
+  log('not-real-composite-rejected', notReal === 'not-real' && doc.psdPreviewMode === 'composite', String(notReal));
   delete doc.psd!.canvas;
-  log('missing-composite-rejected', C.analyzePsdPreview(doc).composite === 'missing' && C.analyzePsdPreview(doc).mode !== 'file-composite', String(C.analyzePsdPreview(doc).composite));
+  const missing = R.embeddedCompositeStatus(doc, () => C.composeDocPreview(doc));
+  log('missing-composite-rejected', missing === 'missing' && doc.psdPreviewMode === 'composite', String(missing));
 }
 
 // ---------- stale detection: diagnostic only ----------
@@ -179,7 +196,7 @@ const withEffects = (): Layer[] => {
 
   // A stale composite must not switch the preview automatically yet.
   const staleDoc = build(withEffects(), staleRender);
-  log('stale-composite-not-auto-switched', staleDoc.psdPreviewMode === 'file-composite' && C.isShowingEmbeddedFileComposite(staleDoc), String(staleDoc.psdPreviewMode));
+  log('stale-composite-not-auto-switched', staleDoc.psdPreviewMode === 'composite', String(staleDoc.psdPreviewMode));
 }
 
 // ---------- edit / undo / export on a file newly routed to the embedded composite ----------
@@ -204,14 +221,14 @@ const withEffects = (): Layer[] => {
     const i = (y * W + x) * 4;
     if (a[i] !== b[i] || a[i + 1] !== b[i + 1] || a[i + 2] !== b[i + 2]) changedOutside++;
   }
-  log('edit-overlay-mode', doc.psdPreviewMode === 'file-base-overlay', String(doc.psdPreviewMode));
-  log('edit-outside-footprints-unchanged', changedOutside === 0, `${changedOutside} px differ`);
+  log('edit-stays-composite', doc.psdPreviewMode === 'composite', String(doc.psdPreviewMode));
+  log('edit-preview-rerenders', C.getDocPreviewCanvas(doc) !== doc.fileComposite, 'dynamic composite');
   const reread = readPsd(exportPsd(doc), { skipThumbnail: true });
   log('export-keeps-effects', !!reread.children?.find((l) => l.name === 'Blue')?.effects?.dropShadow?.length, 'dropShadow kept');
   const reimport = importPsd('re.psd', exportPsd(doc));
-  log('reimport-opens-on-embedded', reimport.psdPreviewMode === 'file-composite', String(reimport.psdPreviewMode));
+  log('reimport-composite-mode', reimport.psdPreviewMode === 'composite', String(reimport.psdPreviewMode));
   hist.undo();
-  log('undo-returns-embedded', C.isShowingEmbeddedFileComposite(doc) && C.getDocPreviewCanvas(doc) === doc.fileComposite, String(doc.psdPreviewMode));
+  log('undo-rerenders-composite', doc.psdPreviewMode === 'composite' && !!C.getDocPreviewCanvas(doc), String(doc.psdPreviewMode));
 }
 
 const failed = results.filter((r) => !r.ok);

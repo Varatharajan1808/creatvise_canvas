@@ -2,6 +2,7 @@ import type { Layer } from 'ag-psd';
 import { type Doc, type Node, effOpacity, effVisible, walk } from './model';
 import { isPixelBlendMode } from './psdBlend';
 import { isSupportedAdjustment } from './psdAdjustment';
+import { hasUnsupportedLayerEffects } from './psdLayerEffects';
 
 /** Canvas modes whose formulas match Photoshop; the rest of the canvas set differs (soft light, HSL modes). */
 const EXACT_NATIVE_MODES: ReadonlySet<string> = new Set([
@@ -21,15 +22,6 @@ const EXACT_NATIVE_MODES: ReadonlySet<string> = new Set([
 
 const isExactBlend = (mode: string | undefined) => !mode || EXACT_NATIVE_MODES.has(mode) || isPixelBlendMode(mode);
 
-function hasEnabledEffects(l: Layer): boolean {
-  const e = l.effects;
-  if (!e || e.disabled) return false;
-  for (const [k, v] of Object.entries(e)) {
-    if (k === 'disabled' || k === 'scale') continue;
-    for (const fx of ([] as Array<{ enabled?: boolean }>).concat(v as never)) if (fx && fx.enabled !== false) return true;
-  }
-  return false;
-}
 
 function hasNonDefaultBlendIf(l: Layer): boolean {
   const b = l.blendingRanges;
@@ -69,7 +61,7 @@ export function unsimulatedFeatures(doc: Doc): string[] {
       if (l.fillOpacity !== undefined && l.fillOpacity < 1) found.add('fill opacity');
       if (l.clipping && l.blendClippendElements === false) found.add('clipped layers blended individually');
     }
-    if (hasEnabledEffects(l)) found.add('layer effects');
+    if (hasUnsupportedLayerEffects(l.effects)) found.add('layer effects');
     if (l.knockout) found.add('knockout');
     if (hasNonDefaultBlendIf(l)) found.add('Blend If');
     const m = l.mask;
