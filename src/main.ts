@@ -1,6 +1,7 @@
 import './style.css';
 import { escapeHtml } from './utils';
 import { Viewport } from './viewport';
+import { fpsTracker } from './fps';
 import { History, type Command } from './history';
 import { type Doc, type Node, walk, isLocked, nodeBounds, docOf } from './model';
 import {
@@ -56,6 +57,11 @@ import {
 } from './formatCaps';
 import { importDocument } from './formatImport';
 import { exportDocument, exportEditedDownloadName, exportEditedMimeType } from './formatExport';
+import { BackendError, fetchBackendHealth } from './backend';
+import { createSampleIdml, exportIdml } from './idml';
+import { activeInddDoc, downloadBytes, downloadJson } from './inddImportReport';
+import { healthStateFromResponse, indesignChipLabel, indesignChipTitle } from './indesignStatus';
+import { canEditIdmlPosition, canTransformIdml, leavesForIdmlPositionEdit } from './idmlEdit';
 import {
   sourceIndex,
   sourceInsert,
@@ -102,8 +108,11 @@ import {
   type FolderImportSource,
 } from './folderImport';
 import type { Layer } from 'ag-psd';
+import { initTooltips } from './tooltip';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+
+initTooltips();
 
 const vp = new Viewport();
 const hist = new History();
@@ -1031,6 +1040,10 @@ function refresh(syncScene = true) {
     docs.length === 0 || !exportDoc || !canExportDocument(exportDoc);
   ($('btn-fit') as HTMLButtonElement).disabled = docs.length === 0;
   $('empty').style.display = docs.length ? 'none' : 'flex';
+  const inddDebugGroup = document.getElementById('indd-debug-group');
+  if (inddDebugGroup) {
+    inddDebugGroup.hidden = !docs.some((d) => d.format === 'indd');
+  }
   drawOverlay();
 }
 hist.onChange = () => { refresh(); scheduleSave(); };
@@ -1144,6 +1157,7 @@ function drawOverlay() {
   if (statusLeft) {
     statusLeft.innerHTML = `
       <span class="status-pill"><span class="engine-dot"></span>${vp.backendName}</span>
+      ${fpsTracker.getHtml()}
       <span class="status-pill">Zoom: ${Math.round(vp.zoom * 100)}%</span>
       <span class="status-pill">Docs: ${docs.length}</span>
       ${primary ? (multi ? `<span class="status-pill" style="color:#fff;">Selected: <strong>${selection.nodes.length} layers</strong></span>` : `<span class="status-pill" style="color:#fff;">Layer: <strong>${escapeHtml(primary.name)}</strong></span>`) : ''}
@@ -1157,7 +1171,11 @@ function drawOverlay() {
     zoomBadge.textContent = `${Math.round(vp.zoom * 100)}%`;
   }
 }
-vp.onFrame = () => { drawOverlay(); if (viewChanged()) scheduleSave(); };
+vp.onFrame = () => {
+  fpsTracker.recordRenderTime(vp.lastRenderMs);
+  drawOverlay();
+  if (viewChanged()) scheduleSave();
+};
 
 // ---------- hit testing ----------
 function pointInNode(n: Node, px: number, py: number): boolean {
@@ -1533,23 +1551,26 @@ async function openFiles(files: FileList | File[]) {
 
   for (const f of list) {
     const format = formatFromFileName(f.name);
-    if (format === 'indd') {
-      alertModal({
-        title: 'INDD Import Coming Soon',
-        message: 'InDesign (.indd) import is planned after the AI milestone.',
-        type: 'warning',
-        confirmText: 'Understood',
-      });
-      continue;
-    }
     if (!format) {
       alertModal({
         title: 'Unsupported File Format',
-        message: `"${f.name}" is not supported. Open a .psd or .ai file.`,
+        message: `"${f.name}" is not supported. Open a .psd, .ai, .indd, or .idml file.`,
         type: 'error',
         confirmText: 'OK',
       });
       continue;
+    }
+    const isNativeIndd = f.name.toLowerCase().endsWith('.indd');
+    if (isNativeIndd) {
+      const h = await fetchBackendHealth();
+      const st = healthStateFromResponse(h);
+      if (st === 'offline' || st === 'not-found') {
+        toast('InDesign server offline. Starting conversion...', 'warning');
+      } else if (st === 'starting') {
+        toast('InDesign server starting...', 'info');
+      } else {
+        toast('Converting .indd to IDML via InDesign server...', 'info');
+      }
     }
     try {
       added.push(addDoc(await importDocument(f.name, await f.arrayBuffer(), format)));
@@ -1664,6 +1685,58 @@ if (btnSampleAi) {
   };
 }
 
+const btnSampleIndd = $('btn-sample-indd');
+if (btnSampleIndd) {
+  btnSampleIndd.onclick = () => {
+    void (async () => {
+      const btn = $('btn-sample-indd') as HTMLButtonElement | null;
+      if (btn) btn.disabled = true;
+      toast('Loading sample InDesign IDML...', 'info');
+      try {
+        const bytes = await createSampleIdml();
+        recordOpened([addDoc(await importDocument('sample.idml', bytes, 'indd'))]);
+      } catch (err) {
+        alertModal({
+          title: 'Sample INDD Error',
+          message: (err as Error).message,
+          type: 'error',
+        });
+        console.error(err);
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    })();
+  };
+}
+
+const btnInddReport = $('btn-indd-debug-report');
+if (btnInddReport) {
+  btnInddReport.onclick = () => {
+    const doc = activeInddDoc() ?? docs.find((d) => d.format === 'indd');
+    if (doc?.inddImportReport) {
+      downloadJson(`${doc.name}.import-report.json`, doc.inddImportReport);
+    } else {
+      toast('No active INDD document report available.', 'warning');
+    }
+  };
+}
+
+const btnInddIdml = $('btn-indd-debug-idml');
+if (btnInddIdml) {
+  btnInddIdml.onclick = async () => {
+    const doc = activeInddDoc() ?? docs.find((d) => d.format === 'indd');
+    if (doc) {
+      try {
+        const idmlBytes = await exportIdml(doc);
+        downloadBytes(`${doc.name.replace(/\.(indd|idml)$/i, '')}.edited.idml`, idmlBytes, 'application/vnd.adobe.indesign-idml-package');
+        toast('Downloaded IDML package.', 'success');
+      } catch (err) {
+        toast(`Failed to export IDML: ${(err as Error).message}`, 'error');
+      }
+    }
+  };
+}
+
 $('btn-undo').onclick = () => hist.undo();
 $('btn-redo').onclick = () => hist.redo();
 $('btn-delete').onclick = () => deleteNode(selection.primary);
@@ -1706,6 +1779,17 @@ $('btn-export').onclick = async () => {
       toast(`Exported ${a.download}`, 'success');
     }
   } catch (err) {
+    if (err instanceof BackendError && doc.origin === 'indd') {
+      try {
+        const idmlBytes = await exportIdml(doc);
+        const fallbackName = `${doc.name.replace(/\.(indd|idml)$/i, '')}.edited.idml`;
+        downloadBytes(fallbackName, idmlBytes, 'application/vnd.adobe.indesign-idml-package');
+        toast(`Native InDesign export failed. Downloaded patched IDML (${fallbackName}) instead.`, 'warning');
+        return;
+      } catch (fallbackErr) {
+        console.error('IDML fallback export failed:', fallbackErr);
+      }
+    }
     alertModal({
       title: 'Export Failed',
       message: `Failed to export: ${(err as Error).message}`,
@@ -1962,3 +2046,28 @@ vp.init($('gl')).then(async () => {
 // Safety fallback to ensure loader disappears even if WebGPU initialization delays
 setTimeout(dismissLoader, 3000);
 refresh();
+
+// ADD — end of file
+async function updateIndesignStatusChip() {
+  const chip = document.getElementById('indesign-status-chip');
+  if (!chip) return;
+  const h = await fetchBackendHealth();
+  const st = healthStateFromResponse(h);
+  chip.className = `indesign-status-chip ${st === 'online' ? 'online' : 'offline'}`;
+  chip.textContent = indesignChipLabel(h);
+  chip.title = indesignChipTitle(h);
+}
+
+updateIndesignStatusChip();
+window.setInterval(updateIndesignStatusChip, 10_000);
+
+// Start real-time FPS performance tracking
+fpsTracker.start();
+
+$('status')?.addEventListener('click', (e) => {
+  const target = (e.target as HTMLElement).closest('#fps-indicator');
+  if (target) {
+    const gpuPart = vp.lastRenderMs > 0 ? ` · GPU draw: ${vp.lastRenderMs.toFixed(2)}ms` : '';
+    toast(`Performance: ${fpsTracker.fps} FPS · Frame time: ${fpsTracker.frameMs}ms${gpuPart} · Engine: ${vp.backendName}`, 'info');
+  }
+});

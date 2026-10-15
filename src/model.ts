@@ -1,4 +1,6 @@
 import type { Layer, Psd } from 'ag-psd';
+import type { IdmlDocBacking, IdmlNodeMeta } from './idml/types';
+import type { InddImportReport } from './inddImportReport';
 
 /** PDF-compatible `.ai` backing store (patched on export in Phase D). */
 export interface AiDocBacking {
@@ -71,6 +73,7 @@ export interface Node {
   /** Incremented when preview-affecting pixels change since import. */
   previewContentEpoch?: number;
   unsupported: string[];
+  idml?: IdmlNodeMeta;
 }
 
 export interface Doc {
@@ -86,6 +89,10 @@ export interface Doc {
   psd?: Psd;
   /** Present when `format === 'ai'`. Filled in Phase C. */
   ai?: AiDocBacking;
+  idml?: IdmlDocBacking;
+  origin?: 'indd' | 'idml';
+  uploadedBytes?: ArrayBuffer;
+  inddImportReport?: InddImportReport;
   original: ArrayBuffer; // untouched copy of the uploaded file
   warnings: string[];
   /** PSD: how the canvas preview is built (layer quads vs 2D composite vs embedded file composite). */

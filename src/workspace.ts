@@ -15,6 +15,7 @@ export interface SavedDoc {
   id: string;
   name: string;
   format: Doc['format'];
+  origin?: Doc['origin'];
   offsetX: number;
   offsetY: number;
   nodes: SavedNode[]; // layers that still exist. Layers missing from this list were deleted.
@@ -32,6 +33,7 @@ export function serializeDoc(d: Doc): SavedDoc {
     id: d.id,
     name: d.name,
     format: d.format,
+    origin: d.origin,
     offsetX: d.offsetX,
     offsetY: d.offsetY,
     nodes: [...walk(d.roots)].map((n) => ({
@@ -55,6 +57,7 @@ function detach(doc: Doc, n: Node) {
 /** Puts saved edits onto a freshly imported copy of the original file. */
 export function applySavedDoc(doc: Doc, saved: SavedDoc) {
   if (saved.name) doc.name = saved.name;
+  if (saved.origin) doc.origin = saved.origin;
   const byKey = new Map(saved.nodes.map((s) => [s.key, s]));
   doc.offsetX = saved.offsetX;
   doc.offsetY = saved.offsetY;

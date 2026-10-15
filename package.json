@@ -29,7 +29,11 @@
     "test:ai:shapes": "tsx scripts/ai-shape-export.test.ts",
     "test:all": "npm run build && npm run test:formats && npm run test:folder && npm run test:ai && npm run test:ai:shapes && npm run test:psd",
     "poc:idml:a": "tsx scripts/poc/poc-a-idml-roundtrip.test.ts",
-    "poc:indd:b": "tsx scripts/poc/poc-b-orchestrator.ts"
+    "poc:indd:b": "tsx scripts/poc/poc-b-orchestrator.ts",
+    "server": "node server/index.mjs",
+    "check:indesign": "tsx scripts/check-indesign.mjs",
+    "test:idml": "tsx scripts/fixtures/write-sample-creatvise.ts && tsx scripts/idml-roundtrip.test.ts && tsx scripts/idml-smoke.test.ts && tsx scripts/idml-import-skip.test.ts && tsx scripts/sample-creatvise.test.ts",
+    "test:indesign": "tsx scripts/indesign-middleware.test.ts && tsx scripts/indesign-health.test.ts && tsx scripts/indesign-status.test.ts"
   },
   "dependencies": {
     "ag-psd": "^31.0.3",

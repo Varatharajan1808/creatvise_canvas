@@ -11,7 +11,7 @@ import { canEditAiLiveTextOnNode } from './aiTextEdit';
 import { canReplaceAiPlacedImageOnNode, getAiPlacedImageReplaceBlockedReason } from './aiImageEdit';
 
 /** Phase 1: shared UI/policy for formats that use the common `Node` editing path. */
-export type SupportedImportFormat = 'psd' | 'ai';
+export type SupportedImportFormat = 'psd' | 'ai' | 'indd';
 
 export interface FormatCapabilities {
   export: boolean;
@@ -56,15 +56,28 @@ const CAPS: Record<SupportedImportFormat, FormatCapabilities> = {
     deleteLayer: true,
     reorderLayer: false,
   },
+  indd: {
+    export: true,
+    duplicateNativeTree: false,
+    groupLayers: false,
+    folderBatchImport: false,
+    editText: true,
+    editShape: true,
+    replaceImage: false,
+    resizeRotate: true,
+    deleteLayer: true,
+    reorderLayer: false,
+  },
 };
 
 export function isSupportedImportFormat(format: Doc['format']): format is SupportedImportFormat {
-  return format === 'psd' || format === 'ai';
+  return format === 'psd' || format === 'ai' || format === 'indd';
 }
 
 export function capabilitiesFor(format: Doc['format']): FormatCapabilities | null {
   if (format === 'psd') return CAPS.psd;
   if (format === 'ai') return CAPS.ai;
+  if (format === 'indd') return CAPS.indd;
   return null;
 }
 
@@ -172,6 +185,7 @@ export function aiPlacedImageReplaceBlockedReason(doc: Doc, n: Node): string {
 export function opacityExportsToFile(doc: Doc): boolean {
   if (doc.format === 'psd') return true;
   if (doc.format === 'ai') return true;
+  if (doc.format === 'indd') return true;
   return false;
 }
 
@@ -182,6 +196,8 @@ export function formatFromExtension(ext: string | undefined): Doc['format'] | nu
     case 'ai':
       return 'ai';
     case 'indd':
+      return 'indd';
+    case 'idml':
       return 'indd';
     default:
       return null;

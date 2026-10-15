@@ -178,6 +178,10 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
             <span>Sample AI</span>
           </button>
+          <button id="btn-sample-indd" class="btn-tool" title="Load Sample INDD/IDML">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+            <span>Sample INDD</span>
+          </button>
         </div>
 
         <div class="top-divider"></div>
@@ -287,12 +291,6 @@
                 <span>Open Folder</span>
               </button>
             </div>
-            <div class="empty-features">
-              <span class="feat-tag">✦ WebGPU Accelerated</span>
-              <span class="feat-tag">✦ Layer Inspection</span>
-              <span class="feat-tag">✦ Live Text & Shape Edit</span>
-              <span class="feat-tag">✦ Auto Save</span>
-            </div>
           </div>
         </div>
 
@@ -302,7 +300,21 @@
       <aside id="props"></aside>
 
       <footer id="status">
-        <div class="status-left" id="status-left"></div>
+        <div class="status-left-wrap">
+          <div class="status-left" id="status-left"></div>
+          <span class="status-divider"></span>
+          <span id="indesign-status-chip" class="indesign-status-chip offline" title="InDesign companion service status (offline/online)">InDesign: …</span>
+          <div id="indd-debug-group" class="status-debug-group" hidden>
+            <button id="btn-indd-debug-report" class="btn-status-tool" title="Download INDD import report JSON">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+              <span>INDD Report</span>
+            </button>
+            <button id="btn-indd-debug-idml" class="btn-status-tool" title="Download patched IDML package">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              <span>IDML Package</span>
+            </button>
+          </div>
+        </div>
         <div class="status-right" id="status-right">
           <span class="shortcut-tip"><kbd>Space</kbd>+Drag Pan</span>
           <span class="shortcut-tip"><kbd>Wheel</kbd> Zoom</span>
@@ -312,7 +324,7 @@
       </footer>
     </div>
 
-    <input type="file" id="file" accept=".psd,.ai,.indd" multiple hidden />
+    <input type="file" id="file" accept=".psd,.ai,.indd,.idml" multiple hidden />
     <input type="file" id="folder" webkitdirectory directory multiple hidden />
     <script type="module" src="/src/main.ts"></script>
   </body>

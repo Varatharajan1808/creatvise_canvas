@@ -9,6 +9,14 @@ import {
   type AiTextUndoState,
 } from './aiTextEdit';
 import { captureAiImageState, restoreAiImageState, type AiImageUndoState } from './aiImageEdit';
+import {
+  getIdmlTextInfo,
+  applyIdmlText,
+  getIdmlShapeColor,
+  applyIdmlShapeColor,
+  serializeIdmlState,
+  applyIdmlState,
+} from './idmlEdit';
 
 export interface Rgb { r: number; g: number; b: number }
 
@@ -49,6 +57,7 @@ function baseStyle(n: Node): TextStyle {
 }
 
 export function getTextInfo(n: Node): TextInfo | null {
+  if (n.idml) return getIdmlTextInfo(n);
   if (canEditAiLiveTextOnNode(n)) return getAiLiveTextInfo(n);
   const t = n.src.text;
   if (n.kind !== 'text' || !t) return null;
@@ -132,6 +141,10 @@ export function applyText(n: Node, patch: {
   italic?: boolean;
   alignment?: 'left' | 'center' | 'right';
 }) {
+  if (n.idml) {
+    applyIdmlText(n, patch);
+    return;
+  }
   const t = n.src.text;
   if (!t) return;
   const merged: TextStyle = baseStyle(n);
@@ -221,6 +234,7 @@ export interface ShapeBorderInfo {
 }
 
 export function getShapeColor(n: Node): Rgb | null {
+  if (n.idml) return getIdmlShapeColor(n);
   const f = n.src.vectorFill;
   return n.kind === 'shape' && f?.type === 'color' ? toRgb(f.color) : null;
 }
@@ -354,6 +368,10 @@ export function renderShapeLayerCanvas(n: Node) {
 }
 
 export function applyShapeColor(n: Node, c: Rgb) {
+  if (n.idml) {
+    applyIdmlShapeColor(n, c);
+    return;
+  }
   n.src.vectorFill = { type: 'color', color: { ...c } };
   renderShapeLayerCanvas(n);
 }
@@ -486,6 +504,7 @@ export type SavedLayerState = Omit<LayerState, 'canvas' | 'baseShapeCanvas'>;
 
 /** Everything about a layer's edits that can be stored. Canvases can't be stored, they are rebuilt on restore. */
 export function serializeState(n: Node): SavedLayerState {
+  if (n.idml) return serializeIdmlState(n) as SavedLayerState;
   const s = captureState(n);
   return {
     text: s.text,
@@ -508,6 +527,10 @@ export function serializeState(n: Node): SavedLayerState {
 }
 
 export function applySavedState(n: Node, s: SavedLayerState) {
+  if (n.idml) {
+    applyIdmlState(n, s);
+    return;
+  }
   restoreState(n, { ...s, canvas: n.canvas, baseShapeCanvas: n.baseShapeCanvas });
   if (n.textEdited && n.src.text) {
     // edited text: draw it again from the saved text and style

@@ -36,6 +36,7 @@ export class Viewport {
   width = 1;
   height = 1;
   backendName = 'unknown';
+  lastRenderMs = 0;
   onFrame: () => void = () => {};
 
   private geo = new THREE.PlaneGeometry(1, 1);
@@ -124,7 +125,9 @@ export class Viewport {
     this.pending = true;
     requestAnimationFrame(() => {
       this.pending = false;
+      const t0 = performance.now();
       this.renderer.render(this.scene, this.camera);
+      this.lastRenderMs = performance.now() - t0;
       this.onFrame();
     });
   }
