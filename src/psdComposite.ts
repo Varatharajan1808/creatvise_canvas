@@ -6,6 +6,72 @@ import { applyAdjustmentToCanvas, isSupportedAdjustment } from './psdAdjustment'
 import { activeDropShadow, activeOuterGlow, activeStroke, paintDropShadow, paintOuterGlow, paintStroke } from './psdLayerEffects';
 
 /**
+ * Full-document scratch canvases reused across composes. The expensive part of a PSD preview is
+ * rebuilding the adjustment stack; these only avoid allocating a new document-sized canvas per layer
+ * per frame. Reset with `beginCanvasPool()` at the start of a compose — do not hold a pooled canvas
+ * after that compose returns.
+ */
+let canvasPool: HTMLCanvasElement[] = [];
+let canvasPoolTop = 0;
+ 
+function beginCanvasPool() {
+  canvasPoolTop = 0;
+}
+ 
+function allocCanvas(w: number, h: number): HTMLCanvasElement {
+  let c = canvasPool[canvasPoolTop++];
+  if (!c) {
+    c = document.createElement('canvas');
+    canvasPool.push(c);
+    c.width = w;
+    c.height = h;
+    c.getContext('2d')!.save();
+    return c;
+  }
+  const g = c.getContext('2d')!;
+  // Pop back to the clean state saved below. Drawing state (clip, transform) resets; pixels do not.
+  g.restore();
+  if (c.width !== w || c.height !== h) {
+    c.width = w;
+    c.height = h;
+    g.save();
+    return c;
+  }
+  g.save();
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.globalAlpha = 1;
+  g.globalCompositeOperation = 'source-over';
+  g.clearRect(0, 0, w, h);
+  return c;
+}
+ 
+const objectIds = new WeakMap<object, number>();
+let nextObjectId = 1;
+function objectId(o: object | null | undefined): number {
+  if (!o) return 0;
+  let id = objectIds.get(o);
+  if (!id) {
+    id = nextObjectId++;
+    objectIds.set(o, id);
+  }
+  return id;
+}
+ 
+function ensureCanvas(existing: HTMLCanvasElement | null, w: number, h: number): HTMLCanvasElement {
+  if (existing && existing.width === w && existing.height === h) return existing;
+  const c = existing ?? document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  return c;
+}
+ 
+function reset2d(g: CanvasRenderingContext2D) {
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.globalAlpha = 1;
+  g.globalCompositeOperation = 'source-over';
+}
+
+/**
  * Canvas `globalCompositeOperation` for Photoshop blend modes that canvas supports natively.
  * Modes covered by `isPixelBlendMode` are blended per pixel instead; dissolve falls back to normal.
  */
@@ -77,9 +143,7 @@ function clipLayerToBase(
   layerDocCanvas: HTMLCanvasElement,
   baseDocCanvas: HTMLCanvasElement,
 ): HTMLCanvasElement {
-  const out = document.createElement('canvas');
-  out.width = docW;
-  out.height = docH;
+const out = allocCanvas(docW, docH)
   const g = out.getContext('2d')!;
   g.drawImage(layerDocCanvas, 0, 0);
   g.globalCompositeOperation = 'destination-in';
@@ -99,9 +163,7 @@ function nodeToDocCanvasAt(
   rotationDeg: number,
 ): HTMLCanvasElement | null {
   if (!n.canvas) return null;
-  const scratch = document.createElement('canvas');
-  scratch.width = docW;
-  scratch.height = docH;
+  const scratch = allocCanvas(docW, docH);
   const g = scratch.getContext('2d')!;
   drawRotatedLayer(g, n.canvas, x, y, w, h, rotationDeg);
   applyLayerMask(g, n.src.mask, !!n.src.vectorMask);
@@ -196,6 +258,19 @@ export function docHasPreviewDirtyLayers(doc: Doc): boolean {
   return leaves(doc).some(isLayerPreviewAffecting);
 }
 
+/** Import had zero leaf layers (flattened PSD); embedded composite is the only artwork source. */
+export function docPsdFlattenedAtImport(doc: Doc): boolean {
+  return doc.format === 'psd' && (doc.psdImportLeafCount ?? 0) === 0;
+}
+
+/** Layer tree leaf count differs from import (delete, duplicate, etc.). */
+export function docPsdStructureChanged(doc: Doc): boolean {
+  if (doc.format !== 'psd') return false;
+  const atImport = doc.psdImportLeafCount;
+  if (atImport === undefined) return false;
+  return leaves(doc).length !== atImport;
+}
+
 /** Whether a dirty layer should be drawn on top of the embedded file composite. */
 export function shouldOverlayDirtyLayer(n: Node): boolean {
   if (!isLayerPreviewAffecting(n)) return false;
@@ -283,9 +358,7 @@ function clipBaseShape(r: StackRender, base: Node): HTMLCanvasElement | null {
 
 /** Group used as a clip base: union of its visible leaves (own opacity), drawn normally. */
 function groupShape(r: StackRender, group: Node): HTMLCanvasElement | null {
-  const c = document.createElement('canvas');
-  c.width = r.doc.width;
-  c.height = r.doc.height;
+  const c = allocCanvas(r.doc.width, r.doc.height);
   const g = c.getContext('2d')!;
   let any = false;
   const visit = (n: Node) => {
@@ -304,9 +377,7 @@ function groupShape(r: StackRender, group: Node): HTMLCanvasElement | null {
 
 /** Adjustment layer used as a clip base: its shape is its mask over the whole document. */
 function adjustmentShape(r: StackRender, n: Node): HTMLCanvasElement {
-  const c = document.createElement('canvas');
-  c.width = r.doc.width;
-  c.height = r.doc.height;
+  const c = allocCanvas(r.doc.width, r.doc.height);
   const g = c.getContext('2d')!;
   g.fillStyle = '#fff';
   g.fillRect(0, 0, c.width, c.height);
@@ -358,6 +429,31 @@ function paintLeaf(g: CanvasRenderingContext2D, r: StackRender, n: Node, visible
   if (r.excluded.has(n.id) || !visible || opacity <= 0.001) return;
   const doc = r.doc;
   const pose = r.poseOf(n);
+  const mask = n.src.mask;
+  const needsMask = !!mask && !mask.disabled;
+  const retainForClip = hasClippedLayerAbove(doc, n) && !n.src.clipping;
+  const base = clipBaseOf(doc, n);
+  const effects = n.src.effects;
+  const hasSimulatedLayerEffect =
+    !!activeDropShadow(effects) || !!activeOuterGlow(effects) || !!activeStroke(effects);
+  // Unclipped, unmasked layers draw straight into the destination — no document-sized scratch.
+  if (
+    n.canvas &&
+    pose.w > 0 &&
+    pose.h > 0 &&
+    !needsMask &&
+    !base &&
+    !retainForClip &&
+    !isPixelBlendMode(n.src.blendMode) &&
+    !hasSimulatedLayerEffect
+  ) {
+    g.save();
+    g.globalAlpha = opacity;
+    g.globalCompositeOperation = psdBlendToCompositeOp(n.src.blendMode);
+    drawRotatedLayer(g, n.canvas, pose.x, pose.y, pose.w, pose.h, pose.rotation);
+    g.restore();
+    return;
+  }
   let docLayer = layerPixelsAt(r, n);
   if (!docLayer) {
     if (n.src.adjustment && isSupportedAdjustment(n.src.adjustment)) {
@@ -365,9 +461,7 @@ function paintLeaf(g: CanvasRenderingContext2D, r: StackRender, n: Node, visible
     }
     return;
   }
-  if (hasClippedLayerAbove(doc, n) && !n.src.clipping) r.bases.set(n.id, docLayer);
-
-  const base = clipBaseOf(doc, n);
+ if (retainForClip) r.bases.set(n.id, docLayer);
   if (base) {
     const shape = clipBaseShape(r, base);
     if (!shape) return;
@@ -429,20 +523,183 @@ export function layersNeedingFootprintRemoval(doc: Doc): Node[] {
   return leaves(doc).filter((n) => (isLayerPreviewAffecting(n) || clippedToEditedBase(doc, n)) && n.canvas && n.ow > 0 && n.oh > 0);
 }
 
+const NO_EXCLUDE: ReadonlySet<string> = new Set();
+ 
+/** How many times the import-pose stack (the slow part) was actually repainted. */
+let sansRebuilds = 0;
+ 
+export function psdPreviewCacheStats(): { sansRebuilds: number } {
+  return { sansRebuilds };
+}
+ 
+const previewCaches = new WeakMap<Doc, PreviewCache>();
+ 
+interface PreviewCache {
+  sans: HTMLCanvasElement | null;
+  sansKey: string;
+  plate: HTMLCanvasElement | null;
+  plateKey: string;
+  plateSerial: number;
+  overlay: HTMLCanvasElement | null;
+  overlayKey: string;
+  overlaySerial: number;
+  blended: HTMLCanvasElement | null;
+  composite: HTMLCanvasElement | null;
+  flatKey: string;
+  full: HTMLCanvasElement | null;
+  fullKey: string;
+  fullSerial: number;
+}
+ 
+function previewCacheFor(doc: Doc): PreviewCache {
+  let c = previewCaches.get(doc);
+  if (!c) {
+    c = {
+      sans: null,
+      sansKey: '',
+      plate: null,
+      plateKey: '',
+      plateSerial: 0,
+      overlay: null,
+      overlayKey: '',
+      overlaySerial: 0,
+      blended: null,
+      composite: null,
+      flatKey: '',
+      full: null,
+      fullKey: '',
+      fullSerial: 0,
+    };
+    previewCaches.set(doc, c);
+  }
+  return c;
+}
+ 
+/** Drop cached plates for one document (tests). The next preview rebuilds from scratch. */
+export function invalidatePsdPreviewCache(doc: Doc): void {
+  previewCaches.delete(doc);
+}
+ 
+function maskStamp(mask: LayerMaskData | undefined): string {
+  if (!mask) return '';
+  return [
+    mask.disabled ? 'd' : 'e',
+    mask.left ?? '',
+    mask.top ?? '',
+    mask.right ?? '',
+    mask.bottom ?? '',
+    mask.defaultColor ?? '',
+    mask.fromVectorData ? 'v' : '',
+    objectId(mask.canvas as object | undefined),
+  ].join(',');
+}
+ 
 /**
- * 2D stack at import poses, omitting excluded leaves (adjustments/effects still not simulated).
+ * Identity of everything a stack paint depends on. `import` ignores live x/y/w/h/rotation so a drag
+ * does not rebuild the adjustment stack. Excluded leaves are omitted from the visual fields because
+ * the stack does not draw them.
+ */
+function stackFingerprint(doc: Doc, pose: 'current' | 'import', exclude: ReadonlySet<string>): string {
+  const parts: string[] = [`${doc.width}x${doc.height}`, pose];
+  const visit = (nodes: Node[]) => {
+    for (const n of nodes) {
+      const skipped = exclude.has(n.id);
+      parts.push(n.id, n.kind, skipped ? 'x' : '.', n.src.clipping ? 'c' : 'n', n.src.blendMode ?? '');
+      if (!skipped) {
+        const geom = pose === 'import'
+          ? `${n.ox},${n.oy},${n.ow},${n.oh}`
+          : `${n.x},${n.y},${n.w},${n.h},${n.rotation}`;
+        parts.push(
+          n.visible ? 'v' : 'h',
+          String(n.opacity),
+          geom,
+          String(n.previewContentEpoch ?? 0),
+          n.textEdited ? 't' : '',
+          String(objectId(n.canvas)),
+          String(objectId(n.src.adjustment as object | undefined)),
+          maskStamp(n.src.mask),
+          n.src.vectorMask ? (n.src.vectorMask.disable ? 'vmd' : 'vm') : '',
+        );
+      }
+      if (n.children.length) visit(n.children);
+    }
+  };
+  visit(doc.roots);
+  return parts.join('|');
+}
+ 
+function overlayStamp(nodes: Node[]): string {
+  return nodes.map((n) => [
+    n.id,
+    n.x, n.y, n.w, n.h, n.rotation,
+    effOpacity(n),
+    effVisible(n) ? 1 : 0,
+    n.previewContentEpoch ?? 0,
+    objectId(n.canvas),
+    n.src.blendMode ?? '',
+    maskStamp(n.src.mask),
+  ].join(',')).join(';');
+}
+ 
+function footprintStamp(doc: Doc, removed: Node[]): string {
+  return removed.map((n) => {
+    const r = importFootprintRect(doc, n);
+    return `${n.id}:${r.x},${r.y},${r.w},${r.h}`;
+  }).join(';');
+}
+ 
+/** Normal blending can be a second texture. Other modes must be painted onto a copy of the plate. */
+function overlaySplitsFromPlate(nodes: Node[]): boolean {
+  return nodes.every((n) => !isPixelBlendMode(n.src.blendMode) && psdBlendToCompositeOp(n.src.blendMode) === 'source-over');
+}
+ 
+function paintStack(
+  doc: Doc,
+  poseOf: (n: Node) => LayerPose,
+  exclude: ReadonlySet<string>,
+  target: HTMLCanvasElement,
+): void {
+  beginCanvasPool();
+  const g = target.getContext('2d')!;
+  reset2d(g);
+  g.clearRect(0, 0, target.width, target.height);
+  const stack = stackRender(doc, poseOf, exclude);
+  for (const n of leaves(doc)) paintLeaf(g, stack, n, effVisible(n), effOpacity(n));
+  reset2d(g);
+}
+ 
+function paintNodes(doc: Doc, nodes: Node[], target: HTMLCanvasElement, clear: boolean): void {
+  beginCanvasPool();
+  const g = target.getContext('2d')!;
+  reset2d(g);
+  if (clear) g.clearRect(0, 0, target.width, target.height);
+  const stack = stackRender(doc, currentPose);
+  for (const n of nodes) paintLeaf(g, stack, n, effVisible(n), effOpacity(n));
+  reset2d(g);
+}
+ 
+function ensureSans(doc: Doc, exclude: ReadonlySet<string>): HTMLCanvasElement {
+  const cache = previewCacheFor(doc);
+  const key = stackFingerprint(doc, 'import', exclude);
+  if (cache.sansKey === key && cache.sans) return cache.sans;
+  sansRebuilds++;
+  // New canvas so a caller still holding the previous stack does not see this rebuild.
+  const next = document.createElement('canvas');
+  next.width = doc.width;
+  next.height = doc.height;
+  paintStack(doc, importPose, exclude, next);
+  cache.sans = next;
+  cache.sansKey = key;
+  return next;
+}
+ 
+/**
+ * 2D stack at import poses, omitting excluded leaves.
  * Used to fill old bounds after a layer move without punching transparent holes in the file composite.
+ * The returned canvas is cached and reused; read it before the next compose of this document.
  */
 export function composeDocPreviewExcluding(doc: Doc, excludeIds: ReadonlySet<string>): HTMLCanvasElement {
-  const c = document.createElement('canvas');
-  c.width = doc.width;
-  c.height = doc.height;
-  const g = c.getContext('2d')!;
-  const r = stackRender(doc, importPose, excludeIds);
-  for (const n of leaves(doc)) paintLeaf(g, r, n, effVisible(n), effOpacity(n));
-  g.globalAlpha = 1;
-  g.globalCompositeOperation = 'source-over';
-  return c;
+  return ensureSans(doc, excludeIds);
 }
 
 /** Import rectangle; a clipped layer cannot show outside its base, so it is limited to the base's import rectangle. */
@@ -513,60 +770,142 @@ export function countAdjustmentLayers(doc: Doc): number {
   return leaves(doc).filter((n) => !!n.src.adjustment).length;
 }
 
-/**
- * Paint visible leaf layers with blend modes, clipping, and raster masks (2D).
- * Simulates supported adjustment layers and drop shadow; other layer effects are not drawn here.
- */
 export function composeDocPreview(doc: Doc): HTMLCanvasElement {
-  const c = document.createElement('canvas');
-  c.width = doc.width;
-  c.height = doc.height;
-  const g = c.getContext('2d')!;
-  const r = stackRender(doc, currentPose);
-  for (const n of leaves(doc)) paintLeaf(g, r, n, effVisible(n), effOpacity(n));
-  g.globalAlpha = 1;
-  g.globalCompositeOperation = 'source-over';
-  return c;
+  const cache = previewCacheFor(doc);
+  const key = stackFingerprint(doc, 'current', NO_EXCLUDE);
+  if (cache.fullKey === key && cache.full) return cache.full;
+  // New canvas when the picture changes, so an earlier result stays put (callers compare them).
+  const next = document.createElement('canvas');
+  next.width = doc.width;
+  next.height = doc.height;
+  paintStack(doc, currentPose, NO_EXCLUDE, next);
+  cache.full = next;
+  cache.fullKey = key;
+  cache.fullSerial++;
+  return next;
 }
-
+ 
+/** What the viewport draws for a PSD that uses one baked preview instead of a mesh per layer. */
+export interface PsdLivePreview {
+  /** Complete image, or the static plate when `overlay` is set. */
+  base: HTMLCanvasElement;
+  /** Normal-blended dirty layers above `base`. Null when `base` is already the full preview. */
+  overlay: HTMLCanvasElement | null;
+  baseSerial: number;
+  overlaySerial: number;
+}
+ 
+function staticLive(canvas: HTMLCanvasElement): PsdLivePreview {
+  return { base: canvas, overlay: null, baseSerial: 0, overlaySerial: 0 };
+}
+ 
+/**
+ * Embedded composite + cached footprint patches, then only the dirty layers at their current pose.
+ * The footprint stack does not depend on live x/y, so dragging reuses it.
+ */
+function buildFileBaseLive(doc: Doc): PsdLivePreview | null {
+  const file = doc.fileComposite;
+  if (!file) return null;
+ 
+  const removed = layersNeedingFootprintRemoval(doc);
+  const overlayNodes = overlayLeaves(doc);
+  if (!removed.length && !overlayNodes.length) return staticLive(file);
+ 
+  const cache = previewCacheFor(doc);
+  const exclude = new Set(removed.map((n) => n.id));
+  const sans = ensureSans(doc, exclude);
+  const plateKey = `${objectId(file)}|${cache.sansKey}|${footprintStamp(doc, removed)}`;
+  if (cache.plateKey !== plateKey || !cache.plate) {
+    cache.plate = ensureCanvas(cache.plate, doc.width, doc.height);
+    const g = cache.plate.getContext('2d')!;
+    reset2d(g);
+    g.clearRect(0, 0, doc.width, doc.height);
+    g.drawImage(file, 0, 0);
+    if (removed.length) patchEmbeddedFootprints(g, doc, removed, sans);
+    cache.plateKey = plateKey;
+    cache.plateSerial++;
+  }
+ 
+  if (!overlayNodes.length) {
+    return { base: cache.plate, overlay: null, baseSerial: cache.plateSerial, overlaySerial: 0 };
+  }
+ 
+  const split = overlaySplitsFromPlate(overlayNodes);
+  const oKey = `${split ? 's' : 'f'}|${overlayStamp(overlayNodes)}`;
+  if (cache.overlayKey !== oKey) {
+    if (split) {
+      cache.overlay = ensureCanvas(cache.overlay, doc.width, doc.height);
+      paintNodes(doc, overlayNodes, cache.overlay, true);
+    } else {
+      cache.blended = ensureCanvas(cache.blended, doc.width, doc.height);
+      const g = cache.blended.getContext('2d')!;
+      reset2d(g);
+      g.clearRect(0, 0, doc.width, doc.height);
+      g.drawImage(cache.plate, 0, 0);
+      paintNodes(doc, overlayNodes, cache.blended, false);
+    }
+    cache.overlayKey = oKey;
+    cache.overlaySerial++;
+    cache.flatKey = '';
+  }
+ 
+  if (split && cache.overlay) {
+    return {
+      base: cache.plate,
+      overlay: cache.overlay,
+      baseSerial: cache.plateSerial,
+      overlaySerial: cache.overlaySerial,
+    };
+  }
+  return {
+    base: cache.blended ?? cache.plate,
+    overlay: null,
+    baseSerial: cache.overlaySerial,
+    overlaySerial: 0,
+  };
+}
+ 
+function flattenLive(doc: Doc, live: PsdLivePreview): HTMLCanvasElement {
+  if (!live.overlay) return live.base;
+  const cache = previewCacheFor(doc);
+  const key = `${live.baseSerial}:${live.overlaySerial}:${objectId(live.base)}:${objectId(live.overlay)}`;
+  if (cache.flatKey === key && cache.composite) return cache.composite;
+  const next = document.createElement('canvas');
+  next.width = doc.width;
+  next.height = doc.height;
+  const g = next.getContext('2d')!;
+  reset2d(g);
+  g.drawImage(live.base, 0, 0);
+  g.drawImage(live.overlay, 0, 0);
+  cache.composite = next;
+  cache.flatKey = key;
+  return next;
+}
+ 
 /**
  * Immutable embedded composite + footprint patches + overlay of edited layers at current bounds.
  * Footprint patches swap old layer pixels for a 2D re-stack that omits edited leaves (no alpha holes).
  */
 export function composeDocPreviewWithFileBase(doc: Doc): HTMLCanvasElement | null {
-  const base = doc.fileComposite;
-  if (!base) return composeDocPreview(doc);
-
-  const removed = layersNeedingFootprintRemoval(doc);
-  const overlay = overlayLeaves(doc);
-  if (!removed.length && !overlay.length) return base;
-
-  const c = document.createElement('canvas');
-  c.width = doc.width;
-  c.height = doc.height;
-  const g = c.getContext('2d')!;
-  g.drawImage(base, 0, 0);
-
-  if (removed.length) {
-    const exclude = new Set(removed.map((n) => n.id));
-    const sans = composeDocPreviewExcluding(doc, exclude);
-    patchEmbeddedFootprints(g, doc, removed, sans);
-  }
-
-  const r = stackRender(doc, currentPose);
-  for (const n of overlay) paintLeaf(g, r, n, effVisible(n), effOpacity(n));
-
-  g.globalAlpha = 1;
-  g.globalCompositeOperation = 'source-over';
-  return c;
+  if (!doc.fileComposite) return composeDocPreview(doc);
+  const live = buildFileBaseLive(doc);
+  if (!live) return composeDocPreview(doc);
+  return flattenLive(doc, live);
 }
 
 /** Sync preview mode with whether any layer differs from import state. */
 export function reconcilePsdPreviewMode(doc: Doc): void {
   if (doc.format !== 'psd') return;
+  const leafCount = leaves(doc).length;
   const dirty = docHasPreviewDirtyLayers(doc);
+  const structural = docPsdStructureChanged(doc);
   const hasDirtyAdjustment = leaves(doc).some((n) => !!n.src.adjustment && isLayerPreviewAffecting(n));
-  if (doc.psdFileCompositeBase && doc.fileComposite && !hasDirtyAdjustment) {
+  if (leafCount === 0 && !docPsdFlattenedAtImport(doc)) {
+    doc.psdStaticComposite = false;
+    doc.psdPreviewMode = 'composite';
+    return;
+  }
+  if (doc.psdFileCompositeBase && doc.fileComposite && !hasDirtyAdjustment && !structural) {
     if (!dirty) {
       doc.psdStaticComposite = true;
       doc.psdPreviewMode = 'file-composite';
@@ -625,21 +964,56 @@ export function analyzePsdPreview(doc: Doc): PsdPreviewChoice {
 export function choosePsdPreviewMode(doc: Doc): PsdPreviewMode {
   return analyzePsdPreview(doc).mode;
 }
-
-export function getDocPreviewCanvas(doc: Doc): HTMLCanvasElement | null {
-  const previewDirty = doc.format === 'psd' && docHasPreviewDirtyLayers(doc);
-  if (doc.psdStaticComposite && doc.fileComposite && !previewDirty) return doc.fileComposite;
+/**
+ * Plate plus a normal-blended overlay when a PSD is shown as one preview.
+ * Null when the document is drawn as one mesh per layer.
+ * `base` stays put while a layer is only translated; `overlay` is the moving pixels.
+ */
+export function getPsdLivePreview(doc: Doc): PsdLivePreview | null {
+  if (doc.format !== 'psd') return null;
+  const leafCount = leaves(doc).length;
+  if (leafCount === 0 && !docPsdFlattenedAtImport(doc)) {
+    composeDocPreview(doc);
+    const cache = previewCacheFor(doc);
+    return { base: cache.full!, overlay: null, baseSerial: cache.fullSerial, overlaySerial: 0 };
+  }
+  if (docPsdStructureChanged(doc)) {
+    composeDocPreview(doc);
+    const cache = previewCacheFor(doc);
+    return { base: cache.full!, overlay: null, baseSerial: cache.fullSerial, overlaySerial: 0 };
+  }
+  const previewDirty = docHasPreviewDirtyLayers(doc);
+  if (doc.psdStaticComposite && doc.fileComposite && !previewDirty) return staticLive(doc.fileComposite);
   if (doc.psdFileCompositeBase && doc.fileComposite) {
-    if (doc.psdPreviewMode === 'file-base-overlay' || docHasPreviewDirtyLayers(doc)) {
-      return composeDocPreviewWithFileBase(doc);
-    }
-    return doc.fileComposite;
+    if (doc.psdPreviewMode === 'file-base-overlay' || previewDirty) return buildFileBaseLive(doc);
+    return staticLive(doc.fileComposite);
   }
-  if (doc.psdPreviewMode === 'file-base-overlay' && doc.fileComposite) {
-    return composeDocPreviewWithFileBase(doc);
+  if (doc.psdPreviewMode === 'file-base-overlay' && doc.fileComposite) return buildFileBaseLive(doc);
+  if (doc.psdPreviewMode === 'composite' || docNeedsCompositePreview(doc)) {
+    const cache = previewCacheFor(doc);
+    composeDocPreview(doc);
+    return { base: cache.full!, overlay: null, baseSerial: cache.fullSerial, overlaySerial: 0 };
   }
-  if (doc.psdPreviewMode === 'composite' || docNeedsCompositePreview(doc)) return composeDocPreview(doc);
   return null;
+}
+export function getDocPreviewCanvas(doc: Doc): HTMLCanvasElement | null {
+  // const previewDirty = doc.format === 'psd' && docHasPreviewDirtyLayers(doc);
+  
+  // if (doc.psdStaticComposite && doc.fileComposite && !previewDirty) return doc.fileComposite;
+  // if (doc.psdFileCompositeBase && doc.fileComposite) {
+  //   if (doc.psdPreviewMode === 'file-base-overlay' || docHasPreviewDirtyLayers(doc)) {
+  //     return composeDocPreviewWithFileBase(doc);
+  //   }
+  //   return doc.fileComposite;
+  // }
+  // if (doc.psdPreviewMode === 'file-base-overlay' && doc.fileComposite) {
+  //   return composeDocPreviewWithFileBase(doc);
+  // }
+  // if (doc.psdPreviewMode === 'composite' || docNeedsCompositePreview(doc)) return composeDocPreview(doc);
+  // return null;
+  const live = getPsdLivePreview(doc);
+  if (!live) return null;
+  return flattenLive(doc, live);
 }
 
 /** Layer names that would paint into the dynamic 2D composite (respects opacity/visibility). */

@@ -86,6 +86,7 @@ export function importPsd(name: string, buf: ArrayBuffer): Doc {
     warnings: [],
   };
   doc.roots = (psd.children ?? []).map((l, i) => build(l, null, String(i)));
+  doc.psdImportLeafCount = leaves(doc).length;
   if (doc.roots.length === 0) {
     doc.warnings.push('This PSD has no separate layers, so there is nothing to edit.');
   }
@@ -197,7 +198,10 @@ function syncToPsd(doc: Doc) {
     s.hidden = !n.visible;
     s.opacity = n.opacity;
     s.protected = { ...(s.protected ?? {}), position: n.locked, composite: n.locked };
-    if (n.kind === 'group') continue;
+    if (n.kind === 'group') {
+      if (!s.blendMode) s.blendMode = 'pass through';
+      continue;
+    }
     if (n.kind === 'raster' && n.canvas && isTransformed(n)) {
       bakeTransform(n);
       continue;

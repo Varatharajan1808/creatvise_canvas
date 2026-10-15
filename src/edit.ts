@@ -1,5 +1,14 @@
 import type { Color, ParagraphStyleRun, TextStyle, TextStyleRun, VectorContent } from 'ag-psd';
 import type { Node } from './model';
+import {
+  applyAiLiveTextEdit,
+  canEditAiLiveTextOnNode,
+  captureAiTextState,
+  getAiLiveTextInfo,
+  restoreAiTextState,
+  type AiTextUndoState,
+} from './aiTextEdit';
+import { captureAiImageState, restoreAiImageState, type AiImageUndoState } from './aiImageEdit';
 
 export interface Rgb { r: number; g: number; b: number }
 
@@ -40,6 +49,7 @@ function baseStyle(n: Node): TextStyle {
 }
 
 export function getTextInfo(n: Node): TextInfo | null {
+  if (canEditAiLiveTextOnNode(n)) return getAiLiveTextInfo(n);
   const t = n.src.text;
   if (n.kind !== 'text' || !t) return null;
   const st = baseStyle(n);
@@ -181,6 +191,25 @@ export function applyText(n: Node, patch: {
   n.h = n.oh = r.canvas.height;
   n.textTransform = tf;
   n.textEdited = true;
+}
+
+export function applyTextOrAiLiveText(
+  n: Node,
+  patch: {
+    text?: string;
+    fontSize?: number;
+    color?: Rgb;
+    fontFamily?: string;
+    bold?: boolean;
+    italic?: boolean;
+    alignment?: 'left' | 'center' | 'right';
+  },
+): void {
+  if (canEditAiLiveTextOnNode(n)) {
+    applyAiLiveTextEdit(n, patch);
+    return;
+  }
+  applyText(n, patch);
 }
 
 // ---------------------------------------------------------------- shapes
@@ -369,6 +398,10 @@ export interface LayerState {
   ox: number; oy: number; ow: number; oh: number;
   textTransform?: number[];
   textEdited?: boolean;
+  aiText?: AiTextUndoState;
+  aiTextEdited?: boolean;
+  aiImage?: AiImageUndoState;
+  aiImageEdited?: boolean;
   previewContentEpoch?: number;
 }
 
@@ -386,6 +419,10 @@ export function captureState(n: Node): LayerState {
     ox: n.ox, oy: n.oy, ow: n.ow, oh: n.oh,
     textTransform: n.textTransform ? [...n.textTransform] : undefined,
     textEdited: n.textEdited,
+    aiText: captureAiTextState(n),
+    aiTextEdited: n.aiTextEdited,
+    aiImage: captureAiImageState(n),
+    aiImageEdited: n.aiImageEdited,
     previewContentEpoch: n.previewContentEpoch,
   };
 }
@@ -408,6 +445,10 @@ export function restoreState(n: Node, s: LayerState) {
   n.ox = s.ox; n.oy = s.oy; n.ow = s.ow; n.oh = s.oh;
   n.textTransform = s.textTransform ? [...s.textTransform] : undefined;
   n.textEdited = s.textEdited;
+  if (s.aiText) restoreAiTextState(n, s.aiText);
+  n.aiTextEdited = s.aiTextEdited;
+  if (s.aiImage) restoreAiImageState(n, s.aiImage);
+  n.aiImageEdited = s.aiImageEdited;
   n.previewContentEpoch = s.previewContentEpoch;
 }
 

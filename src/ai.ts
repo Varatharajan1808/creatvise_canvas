@@ -4,14 +4,34 @@ type PdfOcgConfig = Awaited<ReturnType<PDFDocumentProxy['getOptionalContentConfi
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 import type { Layer } from 'ag-psd';
 import { type Doc, type Node, type AiDocBacking, walk } from './model';
+import { captureAiImportStackSnapshot, docHasAiStackReordered } from './aiReorder';
 import {
   exportAiWithPdfLib,
   decomposePdfTransformMatrix,
   readInjectedLayerTransforms,
   readPageExtGStateOpacity,
   neutralizePageExtGStateOpacity,
+  readContentStreamMcStatsFromPdf,
+  readOcgNamesAndRefsFromPdf,
   type PdfMatrix,
 } from './aiPdfLib';
+import {
+  assembleRootsFromOcgOrder,
+  resolveOcgOrderImportLayout,
+} from './aiOcgOrderImport';
+import { initAiLayerMeta, isAiDuplicateLayer, ocgIndexFromNodeKey } from './aiLayerMeta';
+import { applyAiLiveTextImport } from './aiPdfText';
+import { applyAiPlacedImageImport } from './aiImageEdit';
+import {
+  AiImageStreamExportError,
+  docHasAiImageStreamEdits,
+  validateAiImageExportOrThrow,
+} from './aiImageExport';
+import {
+  AiTextStreamExportError,
+  docHasAiTextStreamEdits,
+  docHasUnexportedAiTextPreviewEdits,
+} from './aiTextEdit';
 import {
   applyAiVectorShapeImport,
   docHasAiShapeStreamEdits,
@@ -373,11 +393,13 @@ async function buildLayerRoots(
   width: number,
   height: number,
   ocgNames: string[],
+  ocgRefs: string[],
+  original: ArrayBuffer,
   unsupportedBase: string[],
   region: RenderRegion = { x: 0, y: 0, w: width, h: height },
   allLayersOn?: PdfOcgConfig,
   layerTransforms: Map<number, PdfMatrix> = new Map(),
-): Promise<Node[]> {
+): Promise<{ roots: Node[]; orderWarnings: string[] }> {
   /** Render one layer; a layer carrying an export transform is rendered untransformed and placed by it. */
   const renderLeaf = async (
     name: string,
@@ -392,15 +414,15 @@ async function buildLayerRoots(
       const placement = decomposePdfTransformMatrix(m, frame, height);
       if (placement) {
         const { canvas } = await renderPageToCanvas(page, scale, cfg, frame, undo);
-        return buildLeaf(name, canvas, frame, key, [...unsupportedBase], placement);
+        return buildLeaf(name, canvas, frame, key, layerIndex, [...unsupportedBase], placement);
       }
     }
     const { canvas } = await renderPageToCanvas(page, scale, cfg, region);
-    return buildLeaf(name, canvas, region, key, [...unsupportedBase]);
+    return buildLeaf(name, canvas, region, key, layerIndex, [...unsupportedBase]);
   };
 
   if (ocgNames.length === 0) {
-    return [await renderLeaf('Artwork', 'artwork-0', 0, allLayersOn)];
+    return { roots: [await renderLeaf('Artwork', 'artwork-0', 0, allLayersOn)], orderWarnings: [] };
   }
 
   const baseCfg = await pdf.getOptionalContentConfig();
@@ -412,7 +434,7 @@ async function buildLayerRoots(
     if (nm) nameToId.set(nm, id);
   }
 
-  const roots: Node[] = [];
+  const leafByCatalogIndex = new Map<number, Node>();
   for (let i = 0; i < ocgNames.length; i++) {
     const name = ocgNames[i];
     const cfg = await pdf.getOptionalContentConfig();
@@ -422,9 +444,18 @@ async function buildLayerRoots(
     if (gid) cfg.setVisibility(gid, true);
     else if (ids.length === 1) cfg.setVisibility(ids[0], true);
 
-    roots.push(await renderLeaf(name, `ocg-${i}`, i, cfg));
+    leafByCatalogIndex.set(i, await renderLeaf(name, `ocg-${i}`, i, cfg));
   }
-  return roots;
+
+  const layout = await resolveOcgOrderImportLayout(original, ocgRefs);
+  if (layout.mode === 'nested') {
+    return {
+      roots: assembleRootsFromOcgOrder(layout.entries, leafByCatalogIndex),
+      orderWarnings: layout.warnings,
+    };
+  }
+  const roots = ocgNames.map((_, i) => leafByCatalogIndex.get(i)!);
+  return { roots, orderWarnings: layout.warnings };
 }
 
 function stubLayer(name: string, r: RenderRegion, canvas: HTMLCanvasElement): Layer {
@@ -440,11 +471,13 @@ function buildLeaf(
   canvas: HTMLCanvasElement,
   frame: RenderRegion,
   key: string,
+  layerIndex: number,
   unsupported: string[],
   placement?: RenderRegion & { rotation: number },
 ): Node {
   const p = placement ?? { ...frame, rotation: 0 };
   const src = stubLayer(name, p, canvas);
+  initAiLayerMeta(src, layerIndex);
   if (placement) (src as Layer & { aiArtFrame?: RenderRegion }).aiArtFrame = { ...frame };
   return {
     id: nextId(),
@@ -478,11 +511,19 @@ function buildLeaf(
  * Import a PDF-compatible `.ai` file: render page 1 for the canvas, build a minimal layer tree.
  */
 export async function importAi(name: string, buf: ArrayBuffer): Promise<Doc> {
-  // Keep a copy pdf.js never transfers to its worker (getDocument can detach the buffer it parses).
-  const original = buf.slice(0);
+  // Pinned copy pdf.js / pdf-lib must never detach (getDocument can transfer its parse buffer).
+  const original = new Uint8Array(buf).slice().buffer;
   assertPdfAi(original, name);
-  const ocgNames = parseOcgNames(original);
-  const ocgRefs = parseOcgRefs(original);
+  let ocgNames = parseOcgNames(original);
+  let ocgRefs = parseOcgRefs(original);
+  const ocgFromPdf = await readOcgNamesAndRefsFromPdf(original);
+  if (ocgFromPdf.names.length > ocgNames.length) {
+    ocgNames = ocgFromPdf.names;
+    ocgRefs = ocgFromPdf.refs;
+  } else if (ocgFromPdf.names.length === ocgNames.length && ocgFromPdf.names.length > 0) {
+    ocgNames = ocgFromPdf.names;
+    if (ocgFromPdf.refs.length >= ocgRefs.length) ocgRefs = ocgFromPdf.refs;
+  }
   const hasAiprivate = new TextDecoder('latin1').decode(new Uint8Array(original)).includes('AIPrivateData');
   const fileOpacity = await parseExtGStateOpacity(original);
   const hasExtGStateOpacity = fileOpacity != null;
@@ -540,19 +581,24 @@ export async function importAi(name: string, buf: ArrayBuffer): Promise<Doc> {
     );
   }
   const layerTransforms = await readLayerTransforms(original, ocgNames.length);
-  const roots = await buildLayerRoots(
+  const { roots, orderWarnings } = await buildLayerRoots(
     pdf,
     page,
     scale,
     width,
     height,
     ocgNames,
+    ocgRefs,
+    original,
     unsupportedBase,
     region,
     allLayersOn,
     layerTransforms,
   );
+  for (const w of orderWarnings) warnings.push(w);
   applyFileVisibilityToNodes(roots, ocgRefs, parseOcgOffRefs(original));
+
+  const mcStats = await readContentStreamMcStatsFromPdf(original);
 
   const ai: AiDocBacking = {
     kind: 'ai',
@@ -562,7 +608,18 @@ export async function importAi(name: string, buf: ArrayBuffer): Promise<Doc> {
     ocgRefs: [...ocgRefs],
     hasExtGStateOpacity,
     extGStateCaAtImport: fileOpacity ?? 1,
+    nextMcIndex: mcStats.maxMcIndex + 1,
+    canDuplicateMarkedContent: mcStats.blockCount > 0,
+    markedContentBlockCount: mcStats.blockCount,
+    importOcgRefsByCatalogIndex: [...ocgRefs],
+    originalPinnedBytes: new Uint8Array(original).slice(),
   };
+
+  for (const n of roots) {
+    if (n.kind === 'group') continue;
+    const idx = ocgIndexFromNodeKey(n.key);
+    if (idx !== null) initAiLayerMeta(n.src, idx);
+  }
 
   const pageCount = pdf.numPages;
   await pdf.destroy();
@@ -591,7 +648,12 @@ export async function importAi(name: string, buf: ArrayBuffer): Promise<Doc> {
   }
 
   await applyAiVectorShapeImport(doc);
+  await applyAiLiveTextImport(doc);
+  await applyAiPlacedImageImport(doc);
   if (fileOpacity != null) applyFileOpacityToNodes(doc.roots, fileOpacity);
+
+  captureAiImportStackSnapshot(doc);
+  if (doc.ai) doc.ai.importTreeFingerprint = treeGroupFingerprint(doc.roots);
 
   return doc;
 }
@@ -741,6 +803,25 @@ function docHasGeometryEdits(doc: Doc): boolean {
   return false;
 }
 
+export function treeGroupFingerprint(nodes: readonly Node[]): string {
+  return nodes
+    .map((n) => {
+      if (n.kind === 'group') {
+        return `G(${n.name}){${treeGroupFingerprint(n.children)}}`;
+      }
+      return `L(${n.id}:${n.key})`;
+    })
+    .join(';');
+}
+
+export function docHasAiGroupEdits(doc: Doc): boolean {
+  if (doc.format !== 'ai' || !doc.ai) return false;
+  if (doc.ai.importTreeFingerprint) {
+    return treeGroupFingerprint(doc.roots) !== doc.ai.importTreeFingerprint;
+  }
+  return doc.roots.some((r) => r.kind === 'group');
+}
+
 function docHasAiMetadataEdits(doc: Doc): boolean {
   if (!doc.ai) return false;
   const byOcg = leavesByOcgIndex(doc);
@@ -774,7 +855,18 @@ async function opacityPersisted(bytes: ArrayBuffer, expected: number): Promise<b
 }
 
 function toArrayBuffer(out: Uint8Array): ArrayBuffer {
-  return out.buffer.slice(out.byteOffset, out.byteOffset + out.byteLength) as ArrayBuffer;
+  return out.slice().buffer;
+}
+
+function pinnedExportBytes(bytes: ArrayBuffer | Uint8Array): ArrayBuffer {
+  const u = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  return u.slice().buffer;
+}
+
+function uneditedOriginalBytes(doc: Doc): ArrayBuffer {
+  const pinned = doc.ai?.originalPinnedBytes;
+  if (pinned?.length) return pinned.slice().buffer;
+  return pinnedExportBytes(doc.original);
 }
 
 async function exportViaPdfLib(doc: Doc): Promise<ArrayBuffer> {
@@ -818,24 +910,43 @@ export async function exportAi(doc: Doc): Promise<ArrayBuffer> {
   }
 
   const geometry = docHasGeometryEdits(doc);
+  const stackReorder = docHasAiStackReordered(doc);
   const shapeStream = docHasAiShapeStreamEdits(doc);
+  const textStream = docHasAiTextStreamEdits(doc);
+  const imageStream = docHasAiImageStreamEdits(doc);
   const metadata = docHasAiMetadataEdits(doc);
+  const duplicates = [...walk(doc.roots)].some((n) => isAiDuplicateLayer(n));
+  const grouping = docHasAiGroupEdits(doc);
 
-  if (!geometry && !shapeStream && !metadata) {
-    return doc.original.slice(0);
+  if (docHasUnexportedAiTextPreviewEdits(doc)) {
+    throw new AiTextStreamExportError(
+      'Live text typography changes (font, size, bold, italic, alignment) are preview-only and cannot be exported to the PDF stream yet. Change text content or fill color, or revert typography edits.',
+    );
   }
 
-  if (geometry || shapeStream) {
+  validateAiImageExportOrThrow(doc);
+
+  if (!geometry && !shapeStream && !textStream && !metadata && !duplicates && !imageStream && !stackReorder && !grouping) {
+    return uneditedOriginalBytes(doc);
+  }
+
+  if (duplicates || stackReorder || grouping) {
+    return pinnedExportBytes(await exportViaPdfLib(doc));
+  }
+
+  if (geometry || shapeStream || textStream || imageStream) {
     try {
-      return await exportViaPdfLib(doc);
+      return pinnedExportBytes(await exportViaPdfLib(doc));
     } catch (pdfLibErr) {
+      if (pdfLibErr instanceof AiTextStreamExportError) throw pdfLibErr;
+      if (pdfLibErr instanceof AiImageStreamExportError) throw pdfLibErr;
       console.warn('pdf-lib export failed, attempting legacy byte patching fallback:', pdfLibErr);
-      if (geometry) {
+      if (geometry || textStream || imageStream) {
         throw pdfLibErr;
       }
     }
   }
 
   const { bytes: out, notes: patchNotes } = syncToAi(doc, new Uint8Array(doc.original.slice(0)));
-  return finalizeMetadataExport(doc, out, patchNotes);
+  return pinnedExportBytes(await finalizeMetadataExport(doc, out, patchNotes));
 }

@@ -24,7 +24,12 @@ export function classifyPsdNodeKind(l: Layer, isGroup: boolean): Kind {
 /** Leaf nodes whose position can be changed (move tool / numeric position). */
 export function leavesForPositionEdit(n: Node): Node[] {
   if (n.kind === 'group') {
-    return [...walk(n.children)].filter((c) => c.kind !== 'group' && canEditPsdLayerPosition(c));
+    const out: Node[] = [];
+    for (const c of n.children) {
+      if (c.kind === 'group') out.push(...leavesForPositionEdit(c));
+      else if (canEditPsdLayerPosition(c)) out.push(c);
+    }
+    return out;
   }
   return canEditPsdLayerPosition(n) ? [n] : [];
 }

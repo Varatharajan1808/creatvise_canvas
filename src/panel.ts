@@ -1,15 +1,27 @@
 import { escapeHtml as esc } from './utils';
 import { type Doc, type Node, docOf, nodeBounds, walk, effVisible } from './model';
+import { isNodeSelected, selectionAffectedDocs, selectionBounds, selectionSpansDocuments, type Selection } from './selection';
 import { getTextInfo, getShapeColor, getShapeBorderInfo, getBrightnessContrastInfo, shapeColorBlockReason, rgbToHex } from './edit';
-import { canDeleteLayer, canDuplicateLayer, capabilitiesForDoc, opacityExportsToFile } from './formatCaps';
+import {
+  aiPlacedImageReplaceBlockedReason,
+  canDeleteLayer,
+  canDuplicateLayer,
+  canEditAiTextOnNode,
+  canReplaceAiImageOnNode,
+  canReorderLayerStackStep,
+  capabilitiesForDoc,
+  opacityExportsToFile,
+} from './formatCaps';
+import { canDuplicateAiLayer } from './aiLayerMeta';
+import { getAiTextPreviewNote } from './aiTextEdit';
 
 export interface PanelState {
   docs: Doc[];
-  selected: Node | null;
+  selection: Selection;
 }
 
 export interface PanelHandlers {
-  select(n: Node | null): void;
+  select(n: Node | null, shiftKey?: boolean): void;
   toggleVisible(n: Node): void;
   toggleLocked(n: Node): void;
   rename(n: Node): void;
@@ -19,7 +31,7 @@ export interface PanelHandlers {
   setOpacityPreview(n: Node, v: number): void;
   commitOpacity(n: Node, from: number, to: number): void;
   editPosition(n: Node, x: string, y: string, commit: boolean): void;
-  setTransform(n: Node, t: { w?: number; h?: number; rotation?: number }): void;
+  setTransform(n: Node, t: { w?: number; h?: number; rotation?: number }, commit?: boolean): void;
   editText(n: Node, patch: {
     text?: string;
     fontSize?: number;
@@ -34,6 +46,11 @@ export interface PanelHandlers {
   editBrightnessContrast(n: Node, patch: { brightness?: number; contrast?: number; useLegacy?: boolean }, commit: boolean): void;
   replaceImage?(n: Node, file: File): void;
   duplicate?(n: Node): void;
+  toggleGroupExpanded?(n: Node): void;
+  /** Move layer toward front of stack (higher z-index / up in panel). */
+  reorderStackUp?(n: Node): void;
+  /** Move layer toward back of stack (lower z-index / down in panel). */
+  reorderStackDown?(n: Node): void;
   showUnsupportedDoc?(doc: Doc): void;
   showUnsupportedNode?(n: Node): void;
 }
@@ -47,6 +64,8 @@ const ICON = {
   unlock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/></svg>',
   edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>',
   copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
+  stackUp: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18 15 12 9 6 15"/></svg>',
+  stackDown: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>',
   alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>',
   // Layer kind SVGs
   group: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>',
@@ -55,6 +74,18 @@ const ICON = {
   shape: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"/></svg>',
 };
 
+/** Whether nested rows are shown under a group folder in the layer panel. */
+export function panelShowsGroupChildren(n: Node): boolean {
+  if (!n.children.length) return false;
+  if (n.kind !== 'group') return true;
+  return n.src.opened !== false;
+}
+
+export function toggleGroupRowExpanded(n: Node): void {
+  if (n.kind !== 'group') return;
+  const open = n.src.opened !== false;
+  n.src.opened = !open;
+}
 
 function rows(
   nodes: Node[],
@@ -69,20 +100,40 @@ function rows(
   // PSD order is bottom -> top; the panel shows top first
   for (const n of [...nodes].reverse()) {
     ids.set(n.id, n);
+    const stackIdx = nodes.indexOf(n);
     const dim = !effVisible(n) ? ' dim' : '';
-    const sel = state.selected === n ? ' sel' : '';
-    const dupBtn = allowDup
+    const sel = isNodeSelected(state.selection, n) ? ' sel' : '';
+    const dupBtn = allowDup && (doc.format !== 'ai' || canDuplicateAiLayer(doc, n))
       ? `<button class="ibtn" data-act="dup" aria-label="Duplicate layer" title="Duplicate layer (Ctrl+D)">${ICON.copy}</button>`
       : '';
     const delBtn = allowDel
       ? `<button class="ibtn del" data-act="del" aria-label="Delete layer" title="Delete layer">${ICON.trash}</button>`
       : '';
+    const canUp =
+      stackIdx < nodes.length - 1 &&
+      canReorderLayerStackStep(doc, n, nodes, stackIdx, stackIdx + 1);
+    const canDown =
+      stackIdx > 0 && canReorderLayerStackStep(doc, n, nodes, stackIdx, stackIdx - 1);
+    const upBtn = canUp
+      ? `<button class="ibtn" data-act="stack-up" aria-label="Move layer up" title="Move layer up (toward front)">${ICON.stackUp}</button>`
+      : '';
+    const downBtn = canDown
+      ? `<button class="ibtn" data-act="stack-down" aria-label="Move layer down" title="Move layer down (toward back)">${ICON.stackDown}</button>`
+      : '';
+    const isGroup = n.kind === 'group' && n.children.length > 0;
+    const expanded = panelShowsGroupChildren(n);
+    const expandBtn = isGroup
+      ? `<button type="button" class="ibtn group-expand" data-act="toggle-expand" aria-label="${expanded ? 'Collapse group' : 'Expand group'}" title="${expanded ? 'Collapse group' : 'Expand group'}">${expanded ? '▾' : '▸'}</button>`
+      : `<span class="group-expand-spacer" aria-hidden="true"></span>`;
     out.push(
       `<div class="row${sel}${dim}" data-id="${n.id}" style="padding-left:${12 + depth * 16}px">
+        ${expandBtn}
         <span class="kind-icon kind-${n.kind}" title="Layer type: ${n.kind}">${ICON[n.kind]}</span>
         <span class="name" title="${esc(n.name)} (Double click to rename)">${esc(n.name)}</span>
         ${n.unsupported.length ? `<button class="warn-tag-btn" data-unsupported-node="${n.id}" title="Click to view unsupported features in popup">!</button>` : ''}
         <div class="row-actions">
+          ${upBtn}
+          ${downBtn}
           ${dupBtn}
           <button class="ibtn" data-act="rename" aria-label="Rename layer" title="Rename layer">${ICON.edit}</button>
           <button class="ibtn" data-act="vis" aria-label="Toggle visibility" title="${n.visible ? 'Hide' : 'Show'} layer">${n.visible ? ICON.eye : ICON.eyeOff}</button>
@@ -91,7 +142,7 @@ function rows(
         </div>
       </div>`,
     );
-    if (n.children.length) rows(n.children, depth + 1, state, out, ids, doc);
+    if (panelShowsGroupChildren(n)) rows(n.children, depth + 1, state, out, ids, doc);
   }
 }
 
@@ -187,12 +238,18 @@ export function renderLayers(el: HTMLElement, state: PanelState, h: PanelHandler
     if (!row) return;
     const node = ids.get(row.dataset.id!)!;
     const act = (t.closest('[data-act]') as HTMLElement | null)?.dataset.act;
+    if (act === 'toggle-expand') {
+      h.toggleGroupExpanded?.(node);
+      return;
+    }
     if (act === 'vis') h.toggleVisible(node);
     else if (act === 'lock') h.toggleLocked(node);
     else if (act === 'del') h.remove(node);
     else if (act === 'rename') h.rename(node);
     else if (act === 'dup') h.duplicate?.(node);
-    else h.select(node);
+    else if (act === 'stack-up') h.reorderStackUp?.(node);
+    else if (act === 'stack-down') h.reorderStackDown?.(node);
+    else h.select(node, e.shiftKey);
   };
 
   el.ondblclick = (e) => {
@@ -269,11 +326,21 @@ function contentSection(n: Node, doc: Doc | null): string {
   }
 
   const t = getTextInfo(n);
+  const aiLiveText = doc ? canEditAiTextOnNode(doc, n) : false;
   if (t) {
-    if (caps && !caps.editText) {
+    if (caps && !caps.editText && !aiLiveText) {
       return `<div class="card-section"><div class="card-title">Text Content</div><div class="note-box">Text editing is not available for .ai files in the browser.</div></div>`;
     }
-    if (t.reason) return `<div class="card-section"><div class="card-title">Text Content</div><div class="note-box warn">${esc(t.reason)}</div></div>`;
+    if (t.reason && !aiLiveText) {
+      return `<div class="card-section"><div class="card-title">Text Content</div><div class="note-box warn">${esc(t.reason)}</div></div>`;
+    }
+
+    const aiNote = aiLiveText ? getAiTextPreviewNote(n) : null;
+    const aiNoteHtml = aiNote
+      ? `<div class="note-box" style="margin-bottom:10px;">${esc(aiNote)}</div>${t.reason ? `<div class="note-box warn" style="margin-bottom:10px;">${esc(t.reason)}</div>` : ''}`
+      : t.reason
+        ? `<div class="note-box warn" style="margin-bottom:10px;">${esc(t.reason)}</div>`
+        : '';
 
     const fontOpts = [...FONT_OPTIONS];
     const cleanFont = t.fontFamily.replace(/(MT|PS)$/i, '').split('-')[0].trim();
@@ -290,6 +357,7 @@ function contentSection(n: Node, doc: Doc | null): string {
 
     return `<div class="card-section">
       <div class="card-title">Text Properties</div>
+      ${aiNoteHtml}
       <div class="field-col">
         <label>Content</label>
         <textarea id="p-text" rows="3" class="input-text" spellcheck="false">${esc(t.text)}</textarea>
@@ -400,12 +468,22 @@ function contentSection(n: Node, doc: Doc | null): string {
   }
 
   if (n.kind === 'raster') {
-    if (caps && !caps.replaceImage) {
-      return `<div class="card-section"><div class="card-title">Image Asset</div><div class="note-box">Replace image is not available for .ai preview layers.</div></div>`;
+    const aiReplace = doc ? canReplaceAiImageOnNode(doc, n) : false;
+    const psdReplace = caps?.replaceImage ?? false;
+    if (!psdReplace && !aiReplace) {
+      const reason =
+        doc?.format === 'ai'
+          ? aiPlacedImageReplaceBlockedReason(doc, n)
+          : 'Replace image is not available for this layer.';
+      return `<div class="card-section"><div class="card-title">Image Asset</div><div class="note-box">${esc(reason)}</div></div>`;
     }
+    const aiNote = aiReplace
+      ? `<div class="note-box">Replaces the embedded PDF image in this layer (DeviceRGB FlateDecode). Placement, opacity, and transforms in the file are preserved on export.</div>`
+      : '';
     return `
       <div class="card-section">
         <div class="card-title">Image Asset</div>
+        ${aiNote}
         <button type="button" id="p-img-replace" class="btn-action full-width" title="Replace image with another file from your computer">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
           Replace Image...
@@ -423,7 +501,9 @@ let lastPropsNodeId: string | null = null;
 let lastPropsKind: string | null = null;
 
 export function renderProps(el: HTMLElement, state: PanelState, h: PanelHandlers) {
-  const n = state.selected;
+  const { selection } = state;
+  const n = selection.primary;
+  const multi = selection.nodes.length > 1;
   const docWarnings = state.docs.flatMap((d) => d.warnings.map((w) => `${d.name}: ${w}`));
   const warn = docWarnings.length
     ? `<div class="card-section"><div class="card-title">File Warnings</div><ul class="unsup-list">${docWarnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></div>`
@@ -444,6 +524,45 @@ export function renderProps(el: HTMLElement, state: PanelState, h: PanelHandlers
         <p>No Layer Selected</p>
         <span>Click any layer on the canvas or in the layer list to inspect and edit its properties.</span>
       </div>
+      ${warn}
+    `;
+    return;
+  }
+
+  if (multi) {
+    lastPropsNodeId = null;
+    lastPropsKind = null;
+    const doc = docOf(n, state.docs);
+    const spans = selectionSpansDocuments(selection, state.docs);
+    const b = spans ? null : selectionBounds(selection);
+    el.innerHTML = `
+      <div class="panel-section-header">
+        <div class="panel-title-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="panel-title-icon"><path d="M12 3v18M3 12h18"/><circle cx="12" cy="12" r="4"/></svg>
+          <span class="panel-title-text">PROPERTIES</span>
+        </div>
+      </div>
+      <div class="card-section">
+        <div class="card-title">Multiple Selection</div>
+        <p class="summary-name" style="font-weight:600;margin:0 0 8px;">${selection.nodes.length} layers selected</p>
+        <p class="note-box">Shift-click layers on the canvas or in the list to add or remove from the selection, including layers from other open files. Drag on the canvas to move all selected layers together.</p>
+        ${selectionSpansDocuments(selection, state.docs) ? `<p class="note-box" style="margin-top:8px;">Selection spans ${selectionAffectedDocs(selection, state.docs).length} documents. Export each file separately to save changes.</p>` : ''}
+        <p class="note-box" style="margin-top:8px;">Per-layer properties, text editing, image replacement, delete, and duplicate require a single selection.</p>
+      </div>
+      <div class="card-section">
+        <div class="card-title">Combined Bounds</div>
+        ${spans
+          ? `<p class="note-box" style="margin:0;">Selection spans multiple documents; the canvas overlay shows the screen-space union.</p>`
+          : `<div class="grid-2 dim-fields">
+          <label>X<input id="p-x" type="text" value="${b ? Math.round(b.x) : '—'}" disabled /></label>
+          <label>Y<input id="p-y" type="text" value="${b ? Math.round(b.y) : '—'}" disabled /></label>
+          <label>W<input id="p-w" type="text" value="${b ? Math.round(b.w) : '—'}" disabled /></label>
+          <label>H<input id="p-h" type="text" value="${b ? Math.round(b.h) : '—'}" disabled /></label>
+        </div>`}
+      </div>
+      ${spans
+        ? `<div class="card-section"><div class="card-title">Documents</div><p style="margin:0;font-size:13px;color:var(--muted);">${selectionAffectedDocs(selection, state.docs).map((d) => esc(d.name)).join(', ')}</p></div>`
+        : doc ? `<div class="card-section"><div class="card-title">Document</div><p style="margin:0;font-size:13px;color:var(--muted);">${esc(doc.name)}</p></div>` : ''}
       ${warn}
     `;
     return;
@@ -485,9 +604,9 @@ export function renderProps(el: HTMLElement, state: PanelState, h: PanelHandlers
     if (slider && activeId !== 'p-op') slider.value = String(op);
     if (opv) opv.textContent = `${op}%`;
 
-    if (n.kind === 'text') {
+    if (n.kind === 'text' || (doc && canEditAiTextOnNode(doc, n))) {
       const t = getTextInfo(n);
-      if (t && !t.reason) {
+      if (t && (!t.reason || (doc && canEditAiTextOnNode(doc, n)))) {
         const ptext = el.querySelector('#p-text') as HTMLTextAreaElement | null;
         const pfs = el.querySelector('#p-fs') as HTMLInputElement | null;
         const ptc = el.querySelector('#p-tc') as HTMLInputElement | null;
@@ -603,9 +722,8 @@ export function renderProps(el: HTMLElement, state: PanelState, h: PanelHandlers
         </div>
       </div>
 
-      ${
-        n.kind === 'raster'
-          ? `<div class="grid-2">
+      ${n.kind === 'raster'
+      ? `<div class="grid-2">
               <div class="field">
                 <label>W</label>
                 <div class="input-unit-wrap"><input type="number" id="p-w" min="1" value="${b ? Math.round(b.w) : 0}"><span class="unit">px</span></div>
@@ -619,11 +737,11 @@ export function renderProps(el: HTMLElement, state: PanelState, h: PanelHandlers
               <label>Rotation</label>
               <div class="input-unit-wrap"><input type="number" id="p-rot" step="1" value="${n.rotation}"><span class="unit">°</span></div>
             </div>`
-          : `<div class="field">
+      : `<div class="field">
               <label>Size</label>
               <div class="size-pill">${b ? Math.round(b.w) : 0} × ${b ? Math.round(b.h) : 0} px</div>
             </div>`
-      }
+    }
 
       <div class="field-col" style="margin-top:10px;">
         <div class="field-between">
@@ -637,16 +755,15 @@ export function renderProps(el: HTMLElement, state: PanelState, h: PanelHandlers
 
     ${contentSection(n, doc)}
 
-    ${
-      n.unsupported.length
-        ? `<div class="card-section warn-section">
+    ${n.unsupported.length
+      ? `<div class="card-section warn-section">
             <div class="card-title warn-title">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mini-warn-icon"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
               Unsupported Features
             </div>
             <ul class="unsup-list">${n.unsupported.map((u) => `<li>${esc(u)}</li>`).join('')}</ul>
           </div>`
-        : ''
+      : ''
     }
 
     ${n.kind === 'shape' ? '<div class="card-section"><div class="note-box">Vector shape paths are preserved as-is. Direct path point editing is currently read-only.</div></div>' : ''}
@@ -678,15 +795,18 @@ export function renderProps(el: HTMLElement, state: PanelState, h: PanelHandlers
   const ph = el.querySelector('#p-h') as HTMLInputElement | null;
   const pr = el.querySelector('#p-rot') as HTMLInputElement | null;
   if (pw) {
-    pw.onchange = () => h.setTransform(n, { w: Number(pw.value) });
+    pw.oninput = () => h.setTransform(n, { w: Number(pw.value) }, false);
+    pw.onchange = () => h.setTransform(n, { w: Number(pw.value) }, true);
     pw.onkeydown = (e) => { if (e.key === 'Enter') pw.dispatchEvent(new Event('change')); };
   }
   if (ph) {
-    ph.onchange = () => h.setTransform(n, { h: Number(ph.value) });
+    ph.oninput = () => h.setTransform(n, { h: Number(ph.value) }, false);
+    ph.onchange = () => h.setTransform(n, { h: Number(ph.value) }, true);
     ph.onkeydown = (e) => { if (e.key === 'Enter') ph.dispatchEvent(new Event('change')); };
   }
   if (pr) {
-    pr.onchange = () => h.setTransform(n, { rotation: Number(pr.value) });
+    pr.oninput = () => h.setTransform(n, { rotation: Number(pr.value) }, false);
+    pr.onchange = () => h.setTransform(n, { rotation: Number(pr.value) }, true);
     pr.onkeydown = (e) => { if (e.key === 'Enter') pr.dispatchEvent(new Event('change')); };
   }
 

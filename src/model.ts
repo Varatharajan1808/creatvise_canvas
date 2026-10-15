@@ -13,6 +13,20 @@ export interface AiDocBacking {
   hasExtGStateOpacity: boolean;
   /** `/ca` read from file at import (1 when no ExtGState). Used for export verification. */
   extGStateCaAtImport: number;
+  /** Next `/MCn` index available when duplicating layers (export allocates new marked content). */
+  nextMcIndex: number;
+  /** When false, duplicate is blocked (no marked-content blocks to clone safely). */
+  canDuplicateMarkedContent: boolean;
+  /** Top-level leaf node ids (bottom→top) captured at end of import; used to detect stack reorder. */
+  importStackNodeIds?: string[];
+  /** `/MC` block count in page Contents at import (before shape promotion). */
+  markedContentBlockCount?: number;
+  /** OCG object refs by catalog index (`ocg-N` → `[N]`); not permuted on stack reorder. */
+  importOcgRefsByCatalogIndex?: string[];
+  /** Pinned file bytes (safe when `doc.original` is detached by pdf.js). */
+  originalPinnedBytes?: Uint8Array;
+  /** Fingerprint of the tree hierarchy at import; used to detect grouping edits on export. */
+  importTreeFingerprint?: string;
 }
 
 export type Kind = 'group' | 'raster' | 'text' | 'shape';
@@ -46,6 +60,12 @@ export interface Node {
   src: Layer; // native layer handle (PSD: ag-psd Layer; AI Phase C may use stub until full bridge)
   textTransform?: number[]; // text start point (baseline origin) at the time ox/oy were set, for idempotent export
   textEdited?: boolean; // text content/style changed, so Photoshop must redraw it on open
+  /** AI: live PDF text preview edited in-browser (no .ai export in Phase B). */
+  aiTextEdited?: boolean;
+  /** AI: embedded PDF image preview replaced in-browser (XObject export not implemented yet). */
+  aiImageEdited?: boolean;
+  /** AI: pdf.js raster snapshot before live-text preview compositing. */
+  aiImportRasterCanvas?: HTMLCanvasElement | null;
   /** Layer pixel content epoch at import (text/shape/raster edits). */
   importPreviewContentEpoch?: number;
   /** Incremented when preview-affecting pixels change since import. */
@@ -76,6 +96,8 @@ export interface Doc {
   fileComposite?: HTMLCanvasElement | null;
   /** When true, preview shows file composite until an edit forces dynamic composite. */
   psdStaticComposite?: boolean;
+  /** Leaf count at import; used to detect delete/duplicate and avoid stale embedded composites. */
+  psdImportLeafCount?: number;
 }
 
 export function* walk(nodes: Node[]): Generator<Node> {

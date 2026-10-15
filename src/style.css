@@ -522,6 +522,20 @@ button:disabled,
   margin-left: 2px;
 }
 
+.group-expand,
+.group-expand-spacer {
+  flex: 0 0 18px;
+  width: 18px;
+  text-align: center;
+  font-size: 11px;
+  line-height: 1;
+  padding: 0;
+}
+
+.group-expand-spacer {
+  display: inline-block;
+}
+
 /* Layer Row */
 .row {
   display: flex;

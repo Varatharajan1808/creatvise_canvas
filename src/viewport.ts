@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { getDocPreviewCanvas } from './psdComposite';
+import { getPsdLivePreview, type PsdLivePreview } from './psdComposite';
 import { type Doc, leaves, effVisible, effOpacity } from './model';
 
 /**
@@ -48,6 +48,10 @@ export class Viewport {
   private meshCanvas = new Map<string, HTMLCanvasElement>();
   private compositeMeshes = new Map<string, THREE.Mesh>();
   private compositeCanvas = new Map<string, HTMLCanvasElement>();
+    private plateSerials = new Map<string, number>();
+  private overlayMeshes = new Map<string, THREE.Mesh>();
+  private overlayCanvas = new Map<string, HTMLCanvasElement>();
+  private overlaySerials = new Map<string, number>();
   private pending = false;
 
   async init(el: HTMLElement) {
@@ -124,7 +128,75 @@ export class Viewport {
       this.onFrame();
     });
   }
-
+private ensureDocQuad(map: Map<string, THREE.Mesh>, docId: string): THREE.Mesh {
+    let mesh = map.get(docId);
+    if (!mesh) {
+      const mat = new THREE.MeshBasicMaterial({ transparent: true, depthTest: false, depthWrite: false });
+      mesh = new THREE.Mesh(this.geo, mat);
+      this.scene.add(mesh);
+      map.set(docId, mesh);
+    }
+    return mesh;
+  }
+ 
+  private placeDocQuad(mesh: THREE.Mesh, doc: Doc, order: number) {
+    mesh.visible = true;
+    mesh.renderOrder = order;
+    mesh.rotation.set(0, 0, 0);
+    mesh.scale.set(doc.width, doc.height, 1);
+    mesh.position.set(doc.offsetX + doc.width / 2, -(doc.offsetY + doc.height / 2), 0);
+  }
+ 
+  /** Upload a canvas only when its pixels or size changed. Dragging reuses the plate texture. */
+  private bindCanvas(
+    mesh: THREE.Mesh,
+    canvas: HTMLCanvasElement,
+    serial: number,
+    canvasMap: Map<string, HTMLCanvasElement>,
+    serialMap: Map<string, number>,
+    docId: string,
+  ) {
+    const mat = mesh.material as THREE.MeshBasicMaterial;
+    const prev = canvasMap.get(docId);
+    const prevSerial = serialMap.get(docId);
+    const image = mat.map?.image as HTMLCanvasElement | undefined;
+    const sizeChanged = !!image && (image.width !== canvas.width || image.height !== canvas.height);
+    if (!mat.map || prev !== canvas || sizeChanged) {
+      mat.map?.dispose();
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      mat.map = tex;
+      mat.needsUpdate = true;
+      canvasMap.set(docId, canvas);
+      serialMap.set(docId, serial);
+      return;
+    }
+    if (prevSerial !== serial) {
+      mat.map.needsUpdate = true;
+      serialMap.set(docId, serial);
+    }
+  }
+ 
+  private syncLivePreview(doc: Doc, live: PsdLivePreview, docIdx: number) {
+    const plate = this.ensureDocQuad(this.compositeMeshes, doc.id);
+    this.placeDocQuad(plate, doc, docIdx * 100000 + 50000);
+    this.bindCanvas(plate, live.base, live.baseSerial, this.compositeCanvas, this.plateSerials, doc.id);
+ 
+    if (live.overlay) {
+      const overlay = this.ensureDocQuad(this.overlayMeshes, doc.id);
+      this.placeDocQuad(overlay, doc, docIdx * 100000 + 50001);
+      this.bindCanvas(overlay, live.overlay, live.overlaySerial, this.overlayCanvas, this.overlaySerials, doc.id);
+    } else {
+      const overlay = this.overlayMeshes.get(doc.id);
+      if (overlay) overlay.visible = false;
+    }
+ 
+    for (const id of this.docMeshIds.get(doc.id) ?? []) {
+      const m = this.meshes.get(id);
+      if (m) m.visible = false;
+    }
+    this.requestRender();
+  }
   addDoc(doc: Doc, index: number) {
     this.docIndex.set(doc.id, index);
     const bg = new THREE.Mesh(this.geo, new THREE.MeshBasicMaterial({ map: this.makeCheckerTexture(), depthTest: false, depthWrite: false }));
@@ -158,51 +230,21 @@ export class Viewport {
       bg.position.set(doc.offsetX + doc.width / 2, -(doc.offsetY + doc.height / 2), 0);
     }
     const docIdx = this.docIndex.get(doc.id) ?? 0;
-    const preview = doc.format === 'psd' ? getDocPreviewCanvas(doc) : null;
-    const compositeMesh = this.compositeMeshes.get(doc.id);
-
-    if (preview) {
-      let cm = compositeMesh;
-      if (!cm) {
-        const tex = new THREE.CanvasTexture(preview);
-        tex.colorSpace = THREE.SRGBColorSpace;
-        const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false });
-        cm = new THREE.Mesh(this.geo, mat);
-        this.scene.add(cm);
-        this.compositeMeshes.set(doc.id, cm);
-        this.compositeCanvas.set(doc.id, preview);
-      } else {
-        const mat = cm.material as THREE.MeshBasicMaterial;
-        const prev = this.compositeCanvas.get(doc.id);
-        if (prev !== preview) {
-          mat.map?.dispose();
-          mat.map = new THREE.CanvasTexture(preview);
-          mat.map.colorSpace = THREE.SRGBColorSpace;
-          this.compositeCanvas.set(doc.id, preview);
-        } else if (mat.map) {
-          mat.map.image = preview;
-        }
-        mat.map!.needsUpdate = true;
-        mat.needsUpdate = true;
-      }
-      cm.visible = true;
-      cm.renderOrder = docIdx * 100000 + 50000;
-      cm.scale.set(doc.width, doc.height, 1);
-      cm.position.set(doc.offsetX + doc.width / 2, -(doc.offsetY + doc.height / 2), 0);
-      for (const id of this.docMeshIds.get(doc.id) ?? []) {
-        const m = this.meshes.get(id);
-        if (m) m.visible = false;
-      }
-      this.requestRender();
+    const live = doc.format === 'psd' ? getPsdLivePreview(doc) : null;
+    if (live) {
+      this.syncLivePreview(doc, live, docIdx);
       return;
     }
-
+ 
+    const compositeMesh = this.compositeMeshes.get(doc.id);
     if (compositeMesh) compositeMesh.visible = false;
-
-    const live = new Set<string>();
+    const overlayMesh = this.overlayMeshes.get(doc.id);
+    if (overlayMesh) overlayMesh.visible = false;
+ 
+    const liveIds = new Set<string>();
     const meshIds = this.docMeshIds.get(doc.id) ?? [];
     leaves(doc).forEach((n, i) => {
-      live.add(n.id);
+      liveIds.add(n.id);
       let m = this.meshes.get(n.id);
       if (!m) {
         if (!n.canvas || n.w === 0 || n.h === 0) return;
@@ -235,7 +277,7 @@ export class Viewport {
     this.docMeshIds.set(doc.id, meshIds);
     // layers removed from the model (deleted): hide their meshes, keep them so undo can bring them back
     for (const id of meshIds) {
-      if (!live.has(id)) {
+      if (!liveIds.has(id)) {
         const m = this.meshes.get(id);
         if (m) m.visible = false;
       }
@@ -260,6 +302,8 @@ export class Viewport {
     if (bg) bg.visible = visible;
     const cm = this.compositeMeshes.get(doc.id);
     if (cm) cm.visible = visible;
+    const om = this.overlayMeshes.get(doc.id);
+    if (om && !visible) om.visible = false;
     for (const id of this.docMeshIds.get(doc.id) ?? []) {
       const m = this.meshes.get(id);
       if (m && !visible) m.visible = false;
