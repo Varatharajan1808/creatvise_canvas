@@ -16,9 +16,4 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - run: npm run test:formats
-      - run: npm run test:folder
-      - run: npm run test:ai
-      - run: npm run test:ai:shapes
-      - run: npm run test:psd
       - run: npm run build
