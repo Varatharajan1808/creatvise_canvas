@@ -1768,8 +1768,6 @@ const emptyOpen = $('empty-open');
 if (emptyOpen) emptyOpen.onclick = (e) => { e.stopPropagation(); $('file').click(); };
 const emptyFolder = $('empty-folder');
 if (emptyFolder) emptyFolder.onclick = (e) => { e.stopPropagation(); void triggerOpenFolder(); };
-const emptySample = $('empty-sample');
-if (emptySample) emptySample.onclick = (e) => { e.stopPropagation(); $('btn-sample').click(); };
 
 // Shortcuts Modal Popup
 const btnShortcuts = $('btn-shortcuts');
