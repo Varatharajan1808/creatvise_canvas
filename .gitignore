@@ -6,7 +6,6 @@ dist/
 
 # Local scripts / audit artifacts (not part of the app)
 scripts/
-*.mjs
 .audit-out/
 artifacts/poc/
 
