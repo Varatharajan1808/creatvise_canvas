@@ -5,14 +5,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Window } from 'happy-dom';
 import JSZip from 'jszip';
-import { importIdml, exportIdml } from '../src/idml';
-import { applyIdmlShapeColor } from '../src/idmlEdit';
-import { shapeColorBlockReason } from '../src/edit';
-import { applyIdmlText } from '../src/idmlEdit';
-import { leaves } from '../src/model';
-import { createSampleIdml } from '../src/idml';
-import { readPageItemAttribute } from '../src/idml/exportPatch';
-import { cmykToRgbHex, parseGraphicXmlColors, resolveSwatchRef } from '../src/idml/swatches';
+import { importIdml, exportIdml } from '../src/indd/idml';
+import { applyIdmlShapeColor } from '../src/indd/idmlEdit';
+import { shapeColorBlockReason } from '../src/operations/edit';
+import { applyIdmlText } from '../src/indd/idmlEdit';
+import { leaves } from '../src/core/model';
+import { createSampleIdml } from '../src/indd/idml';
+import { readPageItemAttribute } from '../src/indd/exportPatch';
+import { cmykToRgbHex, parseGraphicXmlColors, resolveSwatchRef } from '../src/indd/swatches';
 
 const window = new Window();
 (globalThis as unknown as { DOMParser: typeof DOMParser }).DOMParser =
@@ -57,7 +57,7 @@ async function buildTwoSwatchFixture(): Promise<ArrayBuffer> {
   );
   zip.file('Spreads/Spread_s1.xml', spread);
   zip.file('Resources/Graphic.xml', graphic);
-  const { writeIdmlPackage } = await import('../src/idml/zip');
+  const { writeIdmlPackage } = await import('../src/indd/zip');
   return writeIdmlPackage(zip);
 }
 
@@ -72,7 +72,7 @@ async function buildNoFillRectFixture(): Promise<ArrayBuffer> {
   zip.file('designmap.xml', '<?xml version="1.0"?><Document><idPkg:Spread src="Spreads/Spread_s1.xml"/></Document>');
   zip.file('Spreads/Spread_s1.xml', spread);
   zip.file('Resources/Graphic.xml', '<?xml version="1.0"?><Graphic><Color Self="Color/Black" Space="CMYK" ColorValue="0 0 0 100"/></Graphic>');
-  const { writeIdmlPackage } = await import('../src/idml/zip');
+  const { writeIdmlPackage } = await import('../src/indd/zip');
   return writeIdmlPackage(zip);
 }
 

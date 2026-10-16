@@ -12,7 +12,7 @@ import {
   normalizeRelPath,
   uniqueDocumentName,
   isDirectoryFileList,
-} from '../src/folderImport';
+} from '../src/formats/folderImport';
 
 const results: { name: string; ok: boolean; detail: string }[] = [];
 const log = (name: string, ok: boolean, detail: string) => {

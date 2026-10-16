@@ -4,20 +4,20 @@
 import { Window } from 'happy-dom';
 import { createCanvas, loadImage } from '@napi-rs/canvas';
 import JSZip from 'jszip';
-import { importIdml, exportIdml } from '../src/idml';
+import { importIdml, exportIdml } from '../src/indd/idml';
 import {
   patchImageLinkResourceUri,
   readNestedImageAttribute,
   readPageItemAttribute,
-} from '../src/idml/exportPatch';
-import { sniffImageFormat } from '../src/idml/linkImageFormat';
+} from '../src/indd/exportPatch';
+import { sniffImageFormat } from '../src/indd/linkImageFormat';
 import {
   applyIdmlPlacedImageReplace,
   linkUriToPackagePath,
   setPlacedImageDecodeHookForTests,
-} from '../src/idml/placedImage';
-import { leaves } from '../src/model';
-import { writeIdmlPackage } from '../src/idml/zip';
+} from '../src/indd/placedImage';
+import { leaves } from '../src/core/model';
+import { writeIdmlPackage } from '../src/indd/zip';
 
 const RED_PNG = Uint8Array.from(
   atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='),

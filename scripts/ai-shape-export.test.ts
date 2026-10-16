@@ -6,14 +6,14 @@ import { register } from 'node:module';
 import { Window } from 'happy-dom';
 import { createCanvas } from '@napi-rs/canvas';
 import { initializeCanvas } from 'ag-psd';
-import { applyShapeColor, applyShapeBorder } from '../src/edit';
+import { applyShapeColor, applyShapeBorder } from '../src/operations/edit';
 import {
   applyAiVectorShapeImport,
   parsePdfRectShapes,
   readFirstPageContentStreamText,
   pdfRgbFillToken,
-} from '../src/aiVectorShapes';
-import type { Doc } from '../src/model';
+} from '../src/ai/aiVectorShapes';
+import type { Doc } from '../src/core/model';
 
 const hooks = `export async function resolve(specifier, context, next) {
   if (specifier.endsWith('?url')) return { url: 'data:text/javascript,export%20default%20%22%22', shortCircuit: true };
@@ -52,7 +52,7 @@ async function runTests() {
     JSON.stringify(parsed[0] ? { x: parsed[0].x, y: parsed[0].y, w: parsed[0].w, h: parsed[0].h } : null),
   );
 
-  const { exportAi } = await import('../src/ai');
+  const { exportAi } = await import('../src/ai/ai');
   const doc: Doc = {
     id: 'shape-fixture',
     name: 'simple-shapes.ai',

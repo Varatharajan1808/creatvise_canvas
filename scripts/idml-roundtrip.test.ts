@@ -12,7 +12,7 @@ const window = new Window();
   window.DOMParser as unknown as typeof DOMParser;
 (globalThis as unknown as { document: Document }).document = window.document as unknown as Document;
 
-import { importIdml, exportIdml, createSampleIdml } from '../src/idml';
+import { importIdml, exportIdml, createSampleIdml } from '../src/indd/idml';
 
 const results: { name: string; ok: boolean; detail: string }[] = [];
 const log = (name: string, ok: boolean, detail: string) => {

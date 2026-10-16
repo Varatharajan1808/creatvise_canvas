@@ -4,8 +4,8 @@
 import { Window } from 'happy-dom';
 import { createCanvas } from '@napi-rs/canvas';
 import { initializeCanvas, writePsd, type Layer, type Psd } from 'ag-psd';
-import type { Command } from '../src/history';
-import type { Doc, Node } from '../src/model';
+import type { Command } from '../src/core/history';
+import type { Doc, Node } from '../src/core/model';
 
 const results: { name: string; ok: boolean; detail: string }[] = [];
 const log = (name: string, ok: boolean, detail: string) => {
@@ -22,17 +22,17 @@ window.document.createElement = ((tag: string, options?: unknown) => {
 }) as typeof window.document.createElement;
 initializeCanvas((w, h) => createCanvas(w, h) as unknown as HTMLCanvasElement);
 
-const { importPsd, refreshPsdPreviewModeAfterEdit } = await import('../src/psd');
-const { History } = await import('../src/history');
-const { leaves, walk } = await import('../src/model');
+const { importPsd, refreshPsdPreviewModeAfterEdit } = await import('../src/psd/psd');
+const { History } = await import('../src/core/history');
+const { leaves, walk } = await import('../src/core/model');
 const {
   composeDocPreview,
   getDocPreviewCanvas,
   docPsdFlattenedAtImport,
   docPsdStructureChanged,
   invalidatePsdPreviewCache,
-} = await import('../src/psdComposite');
-const { sourceIndex, sourceRemove, sourceRestore } = await import('../src/sourceTree');
+} = await import('../src/psd/psdComposite');
+const { sourceIndex, sourceRemove, sourceRestore } = await import('../src/core/sourceTree');
 
 const W = 120;
 const H = 90;

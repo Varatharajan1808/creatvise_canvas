@@ -5,9 +5,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createCanvas } from '@napi-rs/canvas';
 import { Window } from 'happy-dom';
-import { importIdml } from '../src/idml';
-import { idmlTextRasterScale, rasterizeIdmlTextNode, countVisibleTextPixels } from '../src/idml/rasterText';
-import { leaves } from '../src/model';
+import { importIdml } from '../src/indd/idml';
+import { idmlTextRasterScale, rasterizeIdmlTextNode, countVisibleTextPixels } from '../src/indd/rasterText';
+import { leaves } from '../src/core/model';
 
 const window = new Window();
 (globalThis as unknown as { DOMParser: typeof DOMParser }).DOMParser =

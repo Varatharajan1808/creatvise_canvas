@@ -5,7 +5,7 @@ import { register } from 'node:module';
 import { Window } from 'happy-dom';
 import { createCanvas } from '@napi-rs/canvas';
 import { initializeCanvas, readPsd } from 'ag-psd';
-import { walk, type Doc, type Node, leaves } from '../src/model';
+import { walk, type Doc, type Node, leaves } from '../src/core/model';
 
 const hooks = `export async function resolve(specifier, context, next) {
   if (specifier.endsWith('?url')) return { url: 'data:text/javascript,export%20default%20%22%22', shortCircuit: true };
@@ -26,7 +26,7 @@ initializeCanvas((w, h) => createCanvas(w, h) as unknown as HTMLCanvasElement);
 const results: { name: string; ok: boolean; detail: string }[] = [];
 const log = (name: string, ok: boolean, detail: string) => {
   results.push({ name, ok, detail });
-  console.log(`${ok ? 'OK' : 'FAIL'}: ${name} — ${detail}`);
+  console.log(`${ok ? 'OK' : 'FAIL'}: ${name} ï¿½ ${detail}`);
 };
 const assert = (name: string, cond: boolean, detail: string) => log(name, cond, detail);
 
@@ -46,8 +46,8 @@ function flatOpacity(buf: ArrayBuffer, name: string): number | undefined {
 }
 
 async function run() {
-  const { importPsd, exportPsd, createSamplePsd } = await import('../src/psd');
-  const { isPointInLayer } = await import('../src/canvasHitTest');
+  const { importPsd, exportPsd, createSamplePsd } = await import('../src/psd/psd');
+  const { isPointInLayer } = await import('../src/canvas/canvasHitTest');
 
   const sampleAb = createSamplePsd();
 

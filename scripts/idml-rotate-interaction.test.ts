@@ -6,11 +6,11 @@ import {
   rotationDeltaFromPointerDrag,
   rotationPointerAngleDeg,
   shapeSelectionMatchesMeshRotation,
-} from '../src/idmlVisualRotation';
+} from '../src/indd/idmlVisualRotation';
 import { Window } from 'happy-dom';
 import JSZip from 'jszip';
-import { importIdml, exportIdml } from '../src/idml';
-import { leaves } from '../src/model';
+import { importIdml, exportIdml } from '../src/indd/idml';
+import { leaves } from '../src/core/model';
 
 const window = new Window();
 (globalThis as unknown as { DOMParser: typeof DOMParser }).DOMParser =
@@ -87,7 +87,7 @@ async function buildRectFixture(): Promise<ArrayBuffer> {
   zip.file('designmap.xml', '<?xml version="1.0"?><Document><idPkg:Spread src="Spreads/Spread_s1.xml"/></Document>');
   zip.file('Spreads/Spread_s1.xml', spread);
   zip.file('Resources/Graphic.xml', '<?xml version="1.0"?><Graphic><Color Self="Color/Black" Space="CMYK" ColorValue="0 0 0 100"/></Graphic>');
-  const { writeIdmlPackage } = await import('../src/idml/zip');
+  const { writeIdmlPackage } = await import('../src/indd/zip');
   return writeIdmlPackage(zip);
 }
 

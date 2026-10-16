@@ -3,11 +3,11 @@
  */
 import { Window } from 'happy-dom';
 import JSZip from 'jszip';
-import { importIdml, exportIdml } from '../src/idml';
-import { applyIdmlShapeColor } from '../src/idmlEdit';
-import { leaves } from '../src/model';
-import { readPageItemAttribute } from '../src/idml/exportPatch';
-import { rotationDegreesFromMatrix6, parseMatrix6, multiply6 } from '../src/idml/matrix';
+import { importIdml, exportIdml } from '../src/indd/idml';
+import { applyIdmlShapeColor } from '../src/indd/idmlEdit';
+import { leaves } from '../src/core/model';
+import { readPageItemAttribute } from '../src/indd/exportPatch';
+import { rotationDegreesFromMatrix6, parseMatrix6, multiply6 } from '../src/indd/matrix';
 
 const window = new Window();
 (globalThis as unknown as { DOMParser: typeof DOMParser }).DOMParser =
@@ -60,7 +60,7 @@ async function buildFixture(): Promise<ArrayBuffer> {
     'Resources/Graphic.xml',
     '<?xml version="1.0"?><Graphic><Color Self="Color/Black" Space="CMYK" ColorValue="0 0 0 100"/></Graphic>',
   );
-  const { writeIdmlPackage } = await import('../src/idml/zip');
+  const { writeIdmlPackage } = await import('../src/indd/zip');
   return writeIdmlPackage(zip);
 }
 

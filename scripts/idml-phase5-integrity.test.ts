@@ -21,28 +21,28 @@ import path from 'node:path';
 import { Window } from 'happy-dom';
 import { createCanvas, loadImage } from '@napi-rs/canvas';
 import JSZip from 'jszip';
-import { importIdml, exportIdml, createSampleIdml } from '../src/idml';
+import { importIdml, exportIdml, createSampleIdml } from '../src/indd/idml';
 import {
   applyIdmlText,
   applyIdmlShapeColor,
   applyIdmlShapeBorder,
   getIdmlTextInfo,
-} from '../src/idmlEdit';
+} from '../src/indd/idmlEdit';
 import {
   applyIdmlPlacedImageReplace,
   setPlacedImageDecodeHookForTests,
-} from '../src/idml/placedImage';
-import { sniffImageFormat } from '../src/idml/linkImageFormat';
-import { parseGraphicXmlColors, findSwatchRefByHex } from '../src/idml/swatches';
+} from '../src/indd/placedImage';
+import { sniffImageFormat } from '../src/indd/linkImageFormat';
+import { parseGraphicXmlColors, findSwatchRefByHex } from '../src/indd/swatches';
 import {
   readPageItemAttribute,
   readNestedImageAttribute,
   validateIdmlPackageStructure,
-} from '../src/idml/exportPatch';
-import { serializeDoc, applySavedDoc } from '../src/workspace';
-import type { Doc, Node } from '../src/model';
-import { leaves } from '../src/model';
-import { writeIdmlPackage } from '../src/idml/zip';
+} from '../src/indd/exportPatch';
+import { serializeDoc, applySavedDoc } from '../src/core/workspace';
+import type { Doc, Node } from '../src/core/model';
+import { leaves } from '../src/core/model';
+import { writeIdmlPackage } from '../src/indd/zip';
 
 // Setup DOM polyfill
 const window = new Window();

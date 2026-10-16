@@ -7,7 +7,7 @@ import { Window } from 'happy-dom';
 import JSZip from 'jszip';
 import { discoverIndesign } from '../server/indesignDiscover.mjs';
 import { runConversion } from '../server/indesignRunner.mjs';
-import { importIdml, exportIdml } from '../src/idml';
+import { importIdml, exportIdml } from '../src/indd/idml';
 
 const window = new Window();
 (globalThis as unknown as { DOMParser: typeof DOMParser }).DOMParser =

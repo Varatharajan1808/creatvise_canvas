@@ -9,12 +9,12 @@ import {
   hitTestCanvasGroupChrome,
   hitTestCanvasLayer,
   isPointInGroupBounds,
-} from '../src/canvasHitTest';
-import { importPsd } from '../src/psd';
-import { History } from '../src/history';
-import type { Doc, Node } from '../src/model';
-import { executeGroupCreation, planGroupCreation } from '../src/groupOps';
-import { leavesForPositionEdit } from '../src/psdLayerInfo';
+} from '../src/canvas/canvasHitTest';
+import { importPsd } from '../src/psd/psd';
+import { History } from '../src/core/history';
+import type { Doc, Node } from '../src/core/model';
+import { executeGroupCreation, planGroupCreation } from '../src/operations/groupOps';
+import { leavesForPositionEdit } from '../src/psd/psdLayerInfo';
 import {
   movableLeavesForSelection,
   moveLeavesBy,
@@ -24,7 +24,7 @@ import {
   singleSelection,
   snapshotPositions,
   toggleNodeInSelection,
-} from '../src/selection';
+} from '../src/canvas/selection';
 
 const results: { name: string; ok: boolean; detail: string }[] = [];
 const log = (name: string, ok: boolean, detail: string) => {

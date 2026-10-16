@@ -5,11 +5,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Window } from 'happy-dom';
 import JSZip from 'jszip';
-import { importIdml, exportIdml, createSampleIdml } from '../src/idml';
-import { readPageItemAttribute } from '../src/idml/exportPatch';
-import { serializeDoc, applySavedDoc } from '../src/workspace';
-import { leaves } from '../src/model';
-import { sourceRemove } from '../src/sourceTree';
+import { importIdml, exportIdml, createSampleIdml } from '../src/indd/idml';
+import { readPageItemAttribute } from '../src/indd/exportPatch';
+import { serializeDoc, applySavedDoc } from '../src/core/workspace';
+import { leaves } from '../src/core/model';
+import { sourceRemove } from '../src/core/sourceTree';
 
 const window = new Window();
 (globalThis as unknown as { DOMParser: typeof DOMParser }).DOMParser =

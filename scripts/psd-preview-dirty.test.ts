@@ -12,18 +12,18 @@ import {
   importPsd,
   markNodePreviewContentChanged,
   refreshPsdPreviewModeAfterEdit,
-} from '../src/psd';
-import { applyText } from '../src/edit';
-import { History } from '../src/history';
-import { effOpacity, leaves, walk } from '../src/model';
-import { canEditPsdLayerPosition } from '../src/psdLayerInfo';
+} from '../src/psd/psd';
+import { applyText } from '../src/operations/edit';
+import { History } from '../src/core/history';
+import { effOpacity, leaves, walk } from '../src/core/model';
+import { canEditPsdLayerPosition } from '../src/psd/psdLayerInfo';
 import {
   docHasPreviewDirtyLayers,
   getDocPreviewCanvas,
   isLayerPreviewAffecting,
   isLayerPreviewContentDirty,
   isShowingEmbeddedFileComposite,
-} from '../src/psdComposite';
+} from '../src/psd/psdComposite';
 
 const results: { name: string; ok: boolean; detail: string }[] = [];
 const log = (name: string, ok: boolean, detail: string) => {

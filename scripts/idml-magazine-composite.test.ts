@@ -5,9 +5,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Window } from 'happy-dom';
 import { createCanvas, ImageData } from '@napi-rs/canvas';
-import { importIdml } from '../src/idml';
-import { leaves } from '../src/model';
-import type { Node } from '../src/model';
+import { importIdml } from '../src/indd/idml';
+import { leaves } from '../src/core/model';
+import type { Node } from '../src/core/model';
 
 const window = new Window();
 (globalThis as unknown as { DOMParser: typeof DOMParser }).DOMParser =

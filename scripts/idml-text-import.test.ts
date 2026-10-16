@@ -8,9 +8,9 @@ const window = new Window();
   window.DOMParser as unknown as typeof DOMParser;
 (globalThis as unknown as { document: Document }).document = window.document as unknown as Document;
 
-import { importIdml, createSampleIdml } from '../src/idml';
-import { decodeIdmlTextContent, parseStoryFromXml } from '../src/idml/storyParse';
-import { getIdmlTextInfo } from '../src/idmlEdit';
+import { importIdml, createSampleIdml } from '../src/indd/idml';
+import { decodeIdmlTextContent, parseStoryFromXml } from '../src/indd/storyParse';
+import { getIdmlTextInfo } from '../src/indd/idmlEdit';
 
 const results: { name: string; ok: boolean; detail: string }[] = [];
 const log = (name: string, ok: boolean, detail: string) => {

@@ -2,8 +2,8 @@
  * IDML text rasterization: real 2D canvas pixels (via @napi-rs/canvas).
  */
 import { createCanvas } from '@napi-rs/canvas';
-import type { Node } from '../src/model';
-import { rasterizeIdmlTextNode, countTextGlyphPixels, textGlyphsUprightInCanvas } from '../src/idml/rasterText';
+import type { Node } from '../src/core/model';
+import { rasterizeIdmlTextNode, countTextGlyphPixels, textGlyphsUprightInCanvas } from '../src/indd/rasterText';
 
 const results: { name: string; ok: boolean; detail: string }[] = [];
 const log = (name: string, ok: boolean, detail: string) => {

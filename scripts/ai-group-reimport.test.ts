@@ -8,14 +8,14 @@ import { Window } from 'happy-dom';
 import { createCanvas } from '@napi-rs/canvas';
 import { initializeCanvas } from 'ag-psd';
 import { PDFDocument, PDFName, PDFString, PDFDict, PDFArray } from 'pdf-lib';
-import type { Node } from '../src/model';
-import { leaves } from '../src/model';
-import { resolveAiMcIndex } from '../src/aiLayerMeta';
+import type { Node } from '../src/core/model';
+import { leaves } from '../src/core/model';
+import { resolveAiMcIndex } from '../src/ai/aiLayerMeta';
 import {
   aiReorderDocumentBlockedReason,
   canReorderAiDocument,
-} from '../src/aiReorder';
-import { resolveOcgOrderImportLayout } from '../src/aiOcgOrderImport';
+} from '../src/ai/aiReorder';
+import { resolveOcgOrderImportLayout } from '../src/ai/aiOcgOrderImport';
 
 const hooks = `export async function resolve(specifier, context, next) {
   if (specifier.endsWith('?url')) return { url: 'data:text/javascript,export%20default%20%22%22', shortCircuit: true };
@@ -79,7 +79,7 @@ async function buildNestedOrderPdf(flatPath: string, orderBuilder: (ocgs: PDFArr
 }
 
 async function runTests() {
-  const { importAi } = await import('../src/ai');
+  const { importAi } = await import('../src/ai/ai');
   const flatThree = path.join('public', 'fixtures', 'ai', 'three-ocg-layers.ai');
   const nestedOut = path.join('scripts', 'poc', 'output', 'three-ocg-nested-order.ai');
   const twoOcg = path.join('public', 'fixtures', 'ai', 'two-ocg-layers.ai');

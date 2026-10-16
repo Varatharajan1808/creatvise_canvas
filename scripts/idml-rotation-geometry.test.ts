@@ -5,12 +5,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Window } from 'happy-dom';
 import JSZip from 'jszip';
-import { importIdml, exportIdml, pageItemDocPlacement } from '../src/idml';
-import { multiply6, parseMatrix6, rotationDegreesFromMatrix6 } from '../src/idml/matrix';
-import { applyIdmlShapeColor } from '../src/idmlEdit';
-import { leaves } from '../src/model';
-import { exportItemTransformFromDocState, readPageItemAttribute } from '../src/idml/exportPatch';
-import type { Matrix2D } from '../src/idml/matrix';
+import { importIdml, exportIdml, pageItemDocPlacement } from '../src/indd/idml';
+import { multiply6, parseMatrix6, rotationDegreesFromMatrix6 } from '../src/indd/matrix';
+import { applyIdmlShapeColor } from '../src/indd/idmlEdit';
+import { leaves } from '../src/core/model';
+import { exportItemTransformFromDocState, readPageItemAttribute } from '../src/indd/exportPatch';
+import type { Matrix2D } from '../src/indd/matrix';
 
 const window = new Window();
 (globalThis as unknown as { DOMParser: typeof DOMParser }).DOMParser =
@@ -50,7 +50,7 @@ async function buildRotatedRectFixture(): Promise<{ bytes: ArrayBuffer; itemM: s
     'Resources/Graphic.xml',
     '<?xml version="1.0"?><Graphic><Color Self="Color/Black" Space="CMYK" ColorValue="0 0 0 100"/></Graphic>',
   );
-  const { writeIdmlPackage } = await import('../src/idml/zip');
+  const { writeIdmlPackage } = await import('../src/indd/zip');
   return { bytes: await writeIdmlPackage(zip), itemM };
 }
 

@@ -4,9 +4,9 @@
 import { Window } from 'happy-dom';
 import { createCanvas } from '@napi-rs/canvas';
 import { initializeCanvas, writePsd, type Layer, type Psd } from 'ag-psd';
-import { importPsd } from '../src/psd';
-import { History } from '../src/history';
-import type { Doc, Node } from '../src/model';
+import { importPsd } from '../src/psd/psd';
+import { History } from '../src/core/history';
+import type { Doc, Node } from '../src/core/model';
 import {
   groupActionState,
   groupCreateCommand,
@@ -14,10 +14,10 @@ import {
   planGroupCreation,
   planUngroup,
   ungroupActionState,
-} from '../src/groupOps';
-import { GROUP_LAYERS_BLOCKED_MESSAGE } from '../src/formatCaps';
-import { emptySelection, singleSelection, toggleNodeInSelection, type Selection } from '../src/selection';
-import { panelShowsGroupChildren, toggleGroupRowExpanded } from '../src/panel';
+} from '../src/operations/groupOps';
+import { GROUP_LAYERS_BLOCKED_MESSAGE } from '../src/formats/formatCaps';
+import { emptySelection, singleSelection, toggleNodeInSelection, type Selection } from '../src/canvas/selection';
+import { panelShowsGroupChildren, toggleGroupRowExpanded } from '../src/ui/panel';
 
 const results: { name: string; ok: boolean; detail: string }[] = [];
 const log = (name: string, ok: boolean, detail: string) => {

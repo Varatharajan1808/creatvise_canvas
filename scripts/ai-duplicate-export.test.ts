@@ -8,13 +8,13 @@ import { createCanvas, type Canvas } from '@napi-rs/canvas';
 import { initializeCanvas } from 'ag-psd';
 import { PDFDocument, PDFName } from 'pdf-lib';
 import { inflate } from 'pako';
-import { walk, type Doc, type Node } from '../src/model';
+import { walk, type Doc, type Node } from '../src/core/model';
 import {
   applyAiDuplicateMetadata,
   isAiDuplicateLayer,
   resolveAiMcIndex,
-} from '../src/aiLayerMeta';
-import { readContentStreamMcStats } from '../src/aiPdfLib';
+} from '../src/ai/aiLayerMeta';
+import { readContentStreamMcStats } from '../src/ai/aiPdfLib';
 
 const hooks = `export async function resolve(specifier, context, next) {
   if (specifier.endsWith('?url')) return { url: 'data:text/javascript,export%20default%20%22%22', shortCircuit: true };
@@ -119,7 +119,7 @@ function insertDuplicateInTree(doc: Doc, original: Node, clone: Node): void {
 }
 
 async function runTests() {
-  const { importAi, exportAi } = await import('../src/ai');
+  const { importAi, exportAi } = await import('../src/ai/ai');
 
   const sampleBuf = fs.readFileSync('public/sample.ai');
   const sampleAb = sampleBuf.buffer.slice(sampleBuf.byteOffset, sampleBuf.byteOffset + sampleBuf.byteLength);
@@ -151,7 +151,7 @@ async function runTests() {
   assert('export-two-mc-blocks', mcStats.blockCount >= 2, `blocks=${mcStats.blockCount}`);
   assert('export-has-mc0-and-mc1', dupStream.includes('/MC0 BDC') && dupStream.includes('/MC1 BDC'), 'BDC tags');
 
-  const { readOcgNamesAndRefsFromPdf } = await import('../src/aiPdfLib');
+  const { readOcgNamesAndRefsFromPdf } = await import('../src/ai/aiPdfLib');
   const exportedOcgs = await readOcgNamesAndRefsFromPdf(dupOut);
   assert('export-two-ocg-refs', exportedOcgs.refs.length >= 2, `refs=${exportedOcgs.refs.join(',')}`);
   assert('export-two-ocg-names', exportedOcgs.names.length >= 2, exportedOcgs.names.join('|'));

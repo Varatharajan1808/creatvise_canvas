@@ -1,9 +1,9 @@
-import { capabilitiesFor } from '../formatCaps';
-import type { Doc } from '../model';
+import { capabilitiesFor } from './formatCaps';
+import type { Doc } from '../core/model';
 import type { FormatAdapter } from './types';
-import { inddToIdml, idmlToIndd } from '../backend';
-import { importIdml, exportIdml } from '../idml';
-import { buildInddImportReport, logInddImportReport, setActiveInddDoc } from '../inddImportReport';
+import { inddToIdml, idmlToIndd } from './backend';
+import { importIdml, exportIdml } from '../indd/idml';
+import { buildInddImportReport, logInddImportReport, setActiveInddDoc } from '../indd/inddImportReport';
 
 function baseName(doc: Doc): string {
   return doc.name.replace(/\.(indd|idml)$/i, '');

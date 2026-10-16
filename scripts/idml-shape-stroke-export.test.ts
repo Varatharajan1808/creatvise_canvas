@@ -3,12 +3,12 @@
  */
 import { Window } from 'happy-dom';
 import JSZip from 'jszip';
-import { importIdml, exportIdml } from '../src/idml';
-import { applyIdmlShapeColor } from '../src/idmlEdit';
-import { applyShapeBorder } from '../src/edit';
-import { leaves } from '../src/model';
-import { readPageItemAttribute } from '../src/idml/exportPatch';
-import { cmykToRgbHex, parseGraphicXmlColors, resolveSwatchRef } from '../src/idml/swatches';
+import { importIdml, exportIdml } from '../src/indd/idml';
+import { applyIdmlShapeColor } from '../src/indd/idmlEdit';
+import { applyShapeBorder } from '../src/operations/edit';
+import { leaves } from '../src/core/model';
+import { readPageItemAttribute } from '../src/indd/exportPatch';
+import { cmykToRgbHex, parseGraphicXmlColors, resolveSwatchRef } from '../src/indd/swatches';
 
 const window = new Window();
 (globalThis as unknown as { DOMParser: typeof DOMParser }).DOMParser =
@@ -50,7 +50,7 @@ async function buildStrokedFixture(): Promise<ArrayBuffer> {
   zip.file('designmap.xml', '<?xml version="1.0"?><Document><idPkg:Spread src="Spreads/Spread_s1.xml"/></Document>');
   zip.file('Spreads/Spread_s1.xml', spread);
   zip.file('Resources/Graphic.xml', graphic);
-  const { writeIdmlPackage } = await import('../src/idml/zip');
+  const { writeIdmlPackage } = await import('../src/indd/zip');
   return writeIdmlPackage(zip);
 }
 

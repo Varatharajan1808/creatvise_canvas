@@ -1,7 +1,7 @@
 import { Window } from 'happy-dom';
 import { createCanvas } from '@napi-rs/canvas';
 import { initializeCanvas, readPsd } from 'ag-psd';
-import type { Doc, Node } from '../src/model';
+import type { Doc, Node } from '../src/core/model';
 
 const window = new Window();
 (globalThis as unknown as { document: Document }).document = window.document as unknown as Document;
@@ -12,8 +12,8 @@ window.document.createElement = ((tag: string, options?: unknown) => {
 }) as typeof window.document.createElement;
 initializeCanvas((w, h) => createCanvas(w, h) as unknown as HTMLCanvasElement);
 
-const { importPsd, exportPsd, createSamplePsd } = await import('../src/psd');
-const { leaves } = await import('../src/model');
+const { importPsd, exportPsd, createSamplePsd } = await import('../src/psd/psd');
+const { leaves } = await import('../src/core/model');
 
 function findNode(doc: Doc, name: string): Node | undefined {
   return [...leaves(doc)].find((n) => n.name === name);

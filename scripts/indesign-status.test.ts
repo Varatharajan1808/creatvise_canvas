@@ -2,13 +2,13 @@
  * InDesign status module: verify healthStateFromResponse, indesignChipLabel,
  * and indesignChipTitle behave correctly for all health states.
  */
-import type { BackendHealthResponse } from '../src/backend';
+import type { BackendHealthResponse } from '../src/formats/backend';
 import {
   healthStateFromResponse,
   indesignChipLabel,
   indesignChipTitle,
   type IndesignHealthState,
-} from '../src/indesignStatus';
+} from '../src/indd/indesignStatus';
 
 const results: { name: string; ok: boolean; detail: string }[] = [];
 const log = (name: string, ok: boolean, detail: string) => {

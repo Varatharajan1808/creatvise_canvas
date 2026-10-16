@@ -8,8 +8,8 @@ import { Window } from 'happy-dom';
 import { createCanvas } from '@napi-rs/canvas';
 import { initializeCanvas } from 'ag-psd';
 import type { Layer } from 'ag-psd';
-import { History } from '../src/history';
-import { walk, type Doc, type Node } from '../src/model';
+import { History } from '../src/core/history';
+import { walk, type Doc, type Node } from '../src/core/model';
 import {
   addToSelection,
   canAddNodeToSelection,
@@ -26,11 +26,11 @@ import {
   selectionSpansDocuments,
   pointInSelectionForMoveAtScreen,
   type ScreenProjection,
-} from '../src/selection';
-import { importPsd, exportPsd, refreshPsdPreviewModeAfterEdit } from '../src/psd';
-import { docHasPreviewDirtyLayers, isLayerPreviewDirty } from '../src/psdComposite';
-import { leavesForPositionEdit } from '../src/psdLayerInfo';
-import { applyAiDuplicateMetadata } from '../src/aiLayerMeta';
+} from '../src/canvas/selection';
+import { importPsd, exportPsd, refreshPsdPreviewModeAfterEdit } from '../src/psd/psd';
+import { docHasPreviewDirtyLayers, isLayerPreviewDirty } from '../src/psd/psdComposite';
+import { leavesForPositionEdit } from '../src/psd/psdLayerInfo';
+import { applyAiDuplicateMetadata } from '../src/ai/aiLayerMeta';
 
 const hooks = `export async function resolve(specifier, context, next) {
   if (specifier.endsWith('?url')) return { url: 'data:text/javascript,export%20default%20%22%22', shortCircuit: true };
@@ -316,7 +316,7 @@ docs.push(docB);
 
 // AI: single-layer move round-trip (sample.ai has one movable leaf — not multi-layer proof)
 async function aiSingleLayerMoveTests() {
-  const { importAi, exportAi } = await import('../src/ai');
+  const { importAi, exportAi } = await import('../src/ai/ai');
   const samplePath = 'public/sample.ai';
   if (!fs.existsSync(samplePath)) {
     log('ai-single-move-skip', true, 'missing sample.ai');
@@ -347,7 +347,7 @@ async function aiTwoLayerMultiMoveTests() {
     log('ai-two-layer-skip', true, 'missing two-ocg-layers.ai');
     return;
   }
-  const { importAi, exportAi } = await import('../src/ai');
+  const { importAi, exportAi } = await import('../src/ai/ai');
   const buf = fs.readFileSync(twoPath);
   const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
   const doc = await importAi('two-ocg-layers.ai', ab.slice(0));
@@ -395,7 +395,7 @@ async function aiDuplicatedTwoLayerMoveTests() {
     log('ai-dup-two-skip', true, 'missing sample.ai');
     return;
   }
-  const { importAi, exportAi } = await import('../src/ai');
+  const { importAi, exportAi } = await import('../src/ai/ai');
   const buf = fs.readFileSync(samplePath);
   const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
   const doc = await importAi('sample.ai', ab.slice(0));
@@ -442,7 +442,7 @@ async function crossDocumentExportTests() {
     log('cross-doc-export-skip', true, 'missing psd or sample.ai');
     return;
   }
-  const { importAi, exportAi } = await import('../src/ai');
+  const { importAi, exportAi } = await import('../src/ai/ai');
   const psdBuf = fs.readFileSync(psdFixture);
   const psdDoc = importPsd(
     'building.psd',

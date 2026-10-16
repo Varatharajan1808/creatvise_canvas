@@ -1,186 +1,161 @@
-# Adobe InDesign (.indd / .idml) — Research, PoC & Architecture Roadmap
+# Adobe InDesign (.indd / .idml) — Engine Specification & Deep Dive
 
-> Comprehensive technical specification, format analysis, Proof-of-Concept (PoC) results, and integration roadmap for Adobe InDesign (`.indd` / `.idml`).
-
-> [!WARNING]
-> ### ⚠️ Status: Unconfirmed / Not Implemented in Production App
-> **Adobe InDesign (`.indd`) support is NOT implemented in the active Creatvise Canvas web application.**
-> It is currently an **unconfirmed, exploratory research / Proof-of-Concept (PoC)** phase only. In the production app, importing `.indd` files is intentionally disabled/blocked (`src/formatRegistry.ts` throws an unsupported format notification).
-> 
-> This document records initial feasibility research and standalone PoC scripts (`scripts/poc/`). **Once implementation is confirmed and built into the application, this document will be updated with actual production architecture and usage.**
+> Comprehensive architectural reference for Adobe InDesign (`.indd`) and InDesign Markup Language (`.idml`) parsing, XML package editing, sharp text rasterization, desktop middleware automation, and non-destructive export in Creatvise Canvas.
 
 ---
 
 ## 1. Executive Summary
 
-Supporting Adobe InDesign presents unique technical challenges fundamentally different from Adobe Photoshop (`.psd`) or Adobe Illustrator (`.ai`):
+Supporting Adobe InDesign in a web-native canvas presents unique challenges:
+- **Native `.indd`**: A closed, proprietary, chunked binary C++ object database with no public schema and no third-party browser parser.
+- **Open `.idml`**: An official, open XML ZIP archive (`application/vnd.adobe.indesign-idml-package`) defining document spreads, stories, typography, swatches, and links.
 
-- **Photoshop (`.psd`)**: **Production Ready** with open-source binary parser (`ag-psd`), real-time adjustment layers, and embedded raster composites.
-- **Illustrator (`.ai`)**: **Implemented** for PDF-compatible vector streams with Optional Content Groups (OCG), parseable by `pdfjs-dist` and `pdf-lib`.
-- **InDesign (`.indd`)**: **Not Implemented in Production**. A closed, proprietary, chunked-database binary format with **no public specification and no open-source web/JS parser**.
-
-To explore future feasibility, Creatvise Canvas conducted a preliminary **Phase 0 Proof of Concept**:
-1. **PoC-A (IDML Pipeline)**: A standalone script testing **InDesign Markup Language (`.idml`)** using `jszip` to surgically unpack, modify XML nodes (stories, spreads, styles), and repack valid packages. **Status: Automated script PASS (100%)**.
-2. **PoC-B (Native `.indd` Bridge)**: A headless orchestrator script using Adobe ExtendScript (`.jsx`) to bridge native `.indd` files through InDesign Desktop or InDesign Server into IDML and back. **Status: Blocked on machines lacking Adobe InDesign licenses**.
+Creatvise Canvas implements a **two-tier production architecture**:
+1. **Native IDML Ingestion & Export Engine**: A 100% browser-compatible TypeScript engine that parses, edits, renders, and non-destructively patches `.idml` packages directly on client hardware.
+2. **Local InDesign Desktop Bridge Middleware (`server/index.mjs`)**: A lightweight background daemon that orchestrates Adobe InDesign Desktop via automation (Windows COM / macOS AppleScript) to seamlessly convert `.indd` files to `.idml` upon import and back to `.indd` upon download.
 
 ---
 
-## 2. The Native `.indd` File Format Challenge
+## 2. Module Architecture (`src/idml/`)
 
-### Proprietary Binary Structure
-Native `.indd` files are not simple document files; they are **serialized C++ object databases**:
-- Built on an internal database architecture (Object Persistence / OPI page chunks).
-- Highly coupled to the exact Adobe InDesign C++ software architecture and plugin ecosystem.
-- No public binary schema has ever been published by Adobe.
-- Even minor version differences (e.g. InDesign CC 2024 vs 2025) render binary files unreadable by older InDesign versions without conversion.
+All InDesign and IDML logic is organized under `src/idml/`:
 
 ```
-Adobe InDesign (.indd)
-└── Binary Object Database (Proprietary & Closed)
-    ├── Master Header & Database Pages (4KB Chunk Blocks)
-    ├── Class ID & Implementation Maps
-    └── Serialized C++ Runtime Objects (No public spec, no JS parser)
+src/indd/
+├── index.ts                 # Public API barrel export
+├── idml.ts                  # Master IDML import, export, and document orchestrator
+├── idmlEdit.ts              # Interactive layer editing, transform guards & text rasterization
+├── idmlRotatePointer.ts     # Visual rotation handle pointer tracking
+├── idmlVisualRotation.ts    # Transform matrix to CSS & Three.js rotation math
+├── inddImportReport.ts      # Import validation report, layer stats & JSON downloads
+├── indesignStatus.ts        # Desktop middleware health check & status chip UI
+├── exportPatch.ts           # Surgical XML spread & story patcher
+├── linkImageFormat.ts       # Linked asset MIME type and extension detection
+├── matrix.ts                # 6-element 2D affine matrix math (ItemTransform)
+├── objectStyles.ts          # Object style fill and stroke inheritance
+├── placedImage.ts           # Embedded & linked image extractor and placeholder renderer
+├── rasterText.ts            # Sharp 2D canvas typography rasterizer
+├── storyExport.ts           # InDesign Story XML serialization & justification
+├── storyParse.ts            # CharacterStyleRange & ParagraphStyleRange XML parser
+├── swatches.ts              # Document swatches & InDesign color model conversion
+├── textFrameParse.ts        # Text frame geometry & column boundary extraction
+├── textLayout.ts            # Typography font layout and wrap calculation
+├── textStyles.ts            # Character style and font family resolvers
+├── types.ts                 # Canonical IDML backing store & AST interfaces
+└── zip.ts                   # JSZip container reader/writer with offset-0 mimetype
 ```
-
-### Industry Consensus
-Across the desktop publishing industry, web-based editors and automation servers do **not** parse raw `.indd` binary directly. They utilize one of two standard pipelines:
-1. **The IDML Route**: InDesign files are converted to/from IDML (InDesign Markup Language), which is an open, XML-based standard created by Adobe for third-party integration.
-2. **The InDesign Server Route**: A headless instance of Adobe InDesign Server is deployed to convert, render, and serialize native files via ExtendScript or C++ APIs.
 
 ---
 
-## 3. The IDML Solution: Anatomy of an `.idml` Package
+## 3. The IDML Package Structure
 
-IDML is an open ZIP archive containing XML files that fully describe an InDesign document's geometry, typography, assets, and hierarchy:
+An `.idml` file is a ZIP package with strict structural constraints:
 
 ```
 document.idml (ZIP Container)
-├── mimetype (Uncompressed ASCII: application/vnd.adobe.indesign-idml-package)
+├── mimetype (Uncompressed ASCII: application/vnd.adobe.indesign-idml-package at offset 0)
 │
-├── designmap.xml (Master Document Index)
-│   ├── Document spreads and page ordering
-│   ├── Layer definitions and hierarchy
-│   └── Links to Story, Spread, and Resource files
+├── designmap.xml (Master Document Hierarchy)
 │
 ├── Resources/
-│   ├── Fonts.xml (Font families, postscript names, font styles)
-│   ├── Styles.xml (Character styles, paragraph styles, object styles)
-│   ├── Graphic.xml (Colors, swatches, gradients, stroke styles)
-│   └── Preferences.xml (Document dimensions, grid, guide settings)
+│   ├── Graphic.xml (Swatches, Gradients, Colors, Tint resources)
+│   ├── Fonts.xml (Font declarations, PostScript names)
+│   └── Styles.xml (ParagraphStyle, CharacterStyle, ObjectStyle hierarchies)
 │
 ├── Spreads/
-│   └── Spread_*.xml (Page geometry, TextFrames, Rectangles, Groups, Splines)
+│   ├── Spread_ub6.xml (Page items: TextFrame, Rectangle, Oval, Polygon, Group)
+│   └── Spread_ub7.xml (Page geometry, guides, and ItemTransform matrices)
 │
 ├── Stories/
-│   └── Story_*.xml (Live text content, character runs, formatting overrides)
+│   ├── Story_u120.xml (Story text XML containing CharacterStyleRange elements)
+│   └── Story_u145.xml
 │
 └── META-INF/
-    └── container.xml (Package entry points)
+    └── container.xml (Package descriptor)
 ```
 
-### Key Advantages of IDML:
-- **100% Non-Destructive**: XML attributes not recognized by an editor are preserved untouched when repacking the archive.
-- **Client-Side Safe**: Can be unzipped, inspected, transformed, and repacked directly inside the browser using modern JavaScript (`jszip`).
-- **Full Typography**: Text stories and typography formatting are isolated in separate `Story_*.xml` files, making text search, replacement, and styling straightforward.
+> [!IMPORTANT]
+> **Strict Mime-Type Offset Rule**: To remain valid for Adobe InDesign, the `mimetype` file must be stored **completely uncompressed (Store method)** as the very first entry in the ZIP container at byte offset 0. `src/idml/zip.ts` explicitly enforces this rule.
 
 ---
 
-## 4. Phase 0 Proof of Concept Results
+## 4. Typography & Sharp Text Rasterization (`src/idml/rasterText.ts`, `src/idml/textLayout.ts`)
 
-The repository includes complete test scripts and fixtures in `scripts/poc/` and `public/fixtures/poc/`:
-
-### PoC-A: IDML Unzip, Patch & Repack (`scripts/poc/poc-a-idml-roundtrip.test.ts`)
-- **Objective**: Load an IDML file, extract its internal XML files, surgically modify a property (e.g., text content or rectangle fill), repack the ZIP, and verify integrity.
-- **Implementation**:
-  ```typescript
-  import JSZip from 'jszip';
-
-  export async function patchIdmlStory(
-    idmlBuffer: ArrayBuffer,
-    storyTarget: string,
-    newText: string
-  ): Promise<Uint8Array> {
-    const zip = await JSZip.loadAsync(idmlBuffer);
-    
-    // Read and parse story XML
-    const storyXml = await zip.file(`Stories/Story_${storyTarget}.xml`)?.async('string');
-    if (!storyXml) throw new Error('Target story not found');
-    
-    // Surgical XML patch
-    const patchedXml = storyXml.replace(/<Content>.*?<\/Content>/, `<Content>${newText}</Content>`);
-    zip.file(`Stories/Story_${storyTarget}.xml`, patchedXml);
-    
-    // Repack with uncompressed mimetype at offset 0
-    return await zip.generateAsync({
-      type: 'uint8array',
-      compression: 'DEFLATE',
-      compressionOptions: { level: 6 }
-    });
-  }
+- InDesign stories are structured in XML ranges:
+  ```xml
+  <Story Self="u120">
+    <ParagraphStyleRange AppliedParagraphStyle="ParagraphStyle/Header">
+      <CharacterStyleRange AppliedCharacterStyle="CharacterStyle/$ID/[No character style]" PointSize="24" FillColor="Color/BrandRed">
+        <Content>Creatvise Canvas</Content>
+      </CharacterStyleRange>
+    </ParagraphStyleRange>
+  </Story>
   ```
-- **Automated Result**: **PASS (100%)**.
-- **Verification**: Byte-level roundtrip on `public/fixtures/poc/plain.idml` passes XML schema verification and file structure integrity checks.
+- The rasterizer (`rasterText.ts`):
+  1. Resolves paragraph alignments (Left, Center, Right, Justified).
+  2. Resolves swatch colors against `Resources/Graphic.xml`.
+  3. Maps InDesign font family names to browser-available fonts with fallback matching.
+  4. Renders text to a high-DPI offscreen canvas matching the exact text frame bounding box.
 
 ---
 
-### PoC-B: Native INDD Roundtrip Orchestrator (`scripts/poc/poc-b-orchestrator.ts`)
-- **Objective**: Full end-to-end roundtrip:
-  $$\text{Native .indd} \xrightarrow{\text{ExtendScript}} \text{.idml} \xrightarrow{\text{Creatvise Canvas Patch}} \text{patched .idml} \xrightarrow{\text{ExtendScript}} \text{Patched Native .indd}$$
-- **Script**: `scripts/poc/poc-b-orchestrator.ts` invokes Adobe InDesign desktop or InDesign Server via command-line ExtendScript automation (`.jsx`).
-- **Status**: **BLOCKED (Exit Code 2)**.
-- **Cause**: Adobe InDesign is not installed on the automated CI/local audit machine. The script cleanly reports the missing desktop environment and exits without corrupting data.
+## 5. 6-Element Affine Matrix Transformations (`src/idml/matrix.ts`)
+
+InDesign stores item transforms as a 6-element matrix string:
+
+$$\text{ItemTransform} = [a, b, c, d, t_x, t_y]$$
+
+Mapping to the 2D affine matrix:
+
+$$\begin{bmatrix} x' \\ y' \\ 1 \end{bmatrix} = \begin{bmatrix} a & c & t_x \\ b & d & t_y \\ 0 & 0 & 1 \end{bmatrix} \begin{bmatrix} x \\ y \\ 1 \end{bmatrix}$$
+
+`src/idml/matrix.ts` decomposes this matrix into:
+- Translation: $(t_x, t_y)$
+- Rotation Angle: $\theta = \operatorname{atan2}(b, a)$
+- Uniform / Non-uniform Scale: $s_x = \sqrt{a^2 + b^2}, \; s_y = \sqrt{c^2 + d^2}$
 
 ---
 
-## 5. Architectural Roadmap for Creatvise Canvas Integration
+## 6. Non-Destructive XML Patch Export (`src/idml/exportPatch.ts`)
 
-To integrate Adobe InDesign / IDML into Creatvise Canvas's production application:
-
-```
-┌────────────────────────────────────────────────────────┐
-│             Creatvise Canvas Integration Plan          │
-└────────────────────────────────────────────────────────┘
-
-Phase 1: Format Adapter Architecture
-├── Create src/formats/idmlAdapter.ts
-├── Implement FormatAdapter interface (importDocument, exportDocument)
-└── Add format capabilities in src/formatCaps.ts:
-    - moveLayer: true
-    - editText: true (via Story_*.xml)
-    - changeFillColor: true (via Graphic.xml & Spread_*.xml)
-
-Phase 2: Unified Scene Graph Translation
-├── Parse Spreads/Spread_*.xml into Doc.nodes
-│   ├── Spread / Page  ──> Node (type: 'group')
-│   ├── TextFrame      ──> Node (type: 'text', leaf: text, styles)
-│   ├── Rectangle      ──> Node (type: 'shape', leaf: fill, stroke)
-│   └── Image / EPS    ──> Node (type: 'raster')
-└── Map coordinates from InDesign points to canvas pixels
-
-Phase 3: Viewport Rendering
-├── Option A: SVG generation from Spread XML -> Three.js SVG Loader
-└── Option B: High-fidelity headless rasterization (PDF/PNG export)
-
-Phase 4: Non-Destructive Export
-├── Apply user edits back into XML DOM
-├── Regenerate ZIP container via jszip
-└── Ensure mimetype remains stored (compression level 0) at offset 0
-```
+When exporting an edited IDML document (`exportIdml`):
+1. **Story Patching**: Only modified text runs are written back to their respective `Story_*.xml` files; unedited stories and paragraph formatting remain untouched.
+2. **Spread Patching**: Updated position and rotation coordinates are formatted back into `ItemTransform="a b c d tx ty"` attributes on the matching `TextFrame` or `Rectangle` XML tags.
+3. **Swatch Synchronization**: New fill colors applied via the property inspector are appended to `Resources/Graphic.xml` as valid InDesign `Color` elements.
+4. **Clean Repacking**: `writeIdmlPackage` packs the modified files into an archive, guaranteeing that `mimetype` is at byte 0.
 
 ---
 
-## 6. Commands, Scripts & Artifacts
+## 7. Desktop InDesign Middleware Bridge (`server/index.mjs`)
 
-### Run PoC Tests
+For users opening `.indd` files directly:
+- Creatvise Canvas includes a local Node.js bridge server (`server/index.mjs` on port `3001`).
+- The bridge detects installed Adobe InDesign versions (`InDesign.exe` or `InDesign.app`).
+- When a `.indd` file is dropped into the canvas:
+  1. The browser uploads the bytes to `http://localhost:3001/convert/indd-to-idml`.
+  2. The middleware executes an InDesign ExtendScript (`.jsx`) script to export an IDML package.
+  3. The IDML package is returned to the browser for canvas editing.
+  4. On download, the reverse endpoint `/convert/idml-to-indd` generates a pristine native `.indd` file.
+
+### Status Indicator Chip (`src/idml/indesignStatus.ts`)
+The top bar displays real-time desktop connection status:
+- 🟢 **InDesign: Online (v2025)**: Automation bridge active.
+- 🟡 **InDesign: Detected (no exe)**: InDesign installed but bridge process starting.
+- ⚪ **InDesign: Offline**: IDML mode fully available; `.indd` requires launching the server.
+
+---
+
+## 8. Test Suites & Verification
+
+Run all InDesign and IDML regression suites:
+
 ```bash
-# Run PoC-A: IDML automated unzip, patch, and repack test
-npm run poc:idml:a
+# Run comprehensive IDML test suite (33 tests)
+npm run test:idml
 
-# Run PoC-B: Native INDD desktop orchestrator (requires Adobe InDesign)
-npm run poc:indd:b
+# Run Phase 5 document integrity validation
+npm run test:idml:phase5
+
+# Test InDesign bridge middleware health & endpoints
+npm run test:indesign
 ```
-
-### Repository Fixtures
-- `public/fixtures/poc/plain.idml`: Minimal valid InDesign CS4+ IDML document package (DOMVersion 20.4) used for automated roundtrip verification.
-- `scripts/poc/poc-a-idml-roundtrip.test.ts`: Automated test script exercising XML extraction, modification, and repackaging.
-- `scripts/poc/poc-b-orchestrator.ts`: Node.js orchestrator script coordinating ExtendScript operations with InDesign.

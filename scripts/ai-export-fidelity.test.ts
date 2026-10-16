@@ -13,7 +13,7 @@ import { createCanvas, type Canvas } from '@napi-rs/canvas';
 import { initializeCanvas } from 'ag-psd';
 import { PDFDocument, PDFName } from 'pdf-lib';
 import { inflate } from 'pako';
-import { walk, type Doc, type Node } from '../src/model';
+import { walk, type Doc, type Node } from '../src/core/model';
 
 const hooks = `export async function resolve(specifier, context, next) {
   if (specifier.endsWith('?url')) return { url: 'data:text/javascript,export%20default%20%22%22', shortCircuit: true };
@@ -146,7 +146,7 @@ function artworkLeaf(doc: Doc): Node {
 }
 
 async function runTests() {
-  const { importAi, exportAi } = await import('../src/ai');
+  const { importAi, exportAi } = await import('../src/ai/ai');
 
   const sampleBuf = fs.readFileSync('public/sample.ai');
   const sampleAb = sampleBuf.buffer.slice(sampleBuf.byteOffset, sampleBuf.byteOffset + sampleBuf.byteLength);

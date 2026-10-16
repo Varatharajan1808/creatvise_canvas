@@ -42,15 +42,15 @@ window.document.createElement = ((tag: string, options?: unknown) => {
 }) as typeof window.document.createElement;
 initializeCanvas((w, h) => createCanvas(w, h) as unknown as HTMLCanvasElement);
 
-const { importPsd, exportPsd } = await import('../src/psd');
-const { leaves } = await import('../src/model');
-const { composeDocPreview } = await import('../src/psdComposite');
+const { importPsd, exportPsd } = await import('../src/psd/psd');
+const { leaves } = await import('../src/core/model');
+const { composeDocPreview } = await import('../src/psd/psdComposite');
 const {
   evaluateColorBalancePixel,
   prepareColorBalanceParams,
   getColorBalanceWeights,
-} = await import('../src/psdAdjustmentColorBalance');
-const { History } = await import('../src/history');
+} = await import('../src/psd/psdAdjustmentColorBalance');
+const { History } = await import('../src/core/history');
 
 type Doc = ReturnType<typeof importPsd>;
 

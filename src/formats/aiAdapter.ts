@@ -1,5 +1,5 @@
-import { exportAi, importAi } from '../ai';
-import { capabilitiesFor } from '../formatCaps';
+import { exportAi, importAi } from '../ai/ai';
+import { capabilitiesFor } from './formatCaps';
 import type { FormatAdapter } from './types';
 
 export const aiAdapter: FormatAdapter = {

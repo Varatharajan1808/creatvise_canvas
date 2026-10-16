@@ -5,7 +5,7 @@ import { register } from 'node:module';
 import { Window } from 'happy-dom';
 import { createCanvas } from '@napi-rs/canvas';
 import { initializeCanvas } from 'ag-psd';
-import { applyShapeColor, applyShapeBorder, getShapeColor, getShapeBorderInfo } from '../src/edit';
+import { applyShapeColor, applyShapeBorder, getShapeColor, getShapeBorderInfo } from '../src/operations/edit';
 
 const hooks = `export async function resolve(specifier, context, next) {
   if (specifier.endsWith('?url')) return { url: 'data:text/javascript,export%20default%20%22%22', shortCircuit: true };
@@ -27,7 +27,7 @@ async function main() {
     path.join(process.cwd(), 'node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs'),
   ).href;
 
-  const { importAi, exportAi } = await import('../src/ai');
+  const { importAi, exportAi } = await import('../src/ai/ai');
 
   const buf = fs.readFileSync('public/fixtures/ai/simple-shapes.ai');
   const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);

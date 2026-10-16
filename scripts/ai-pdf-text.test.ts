@@ -13,18 +13,18 @@ import {
   parseMcBlockLiveText,
   parsePdfLiveText,
   totalSupportedAiLiveTextRuns,
-} from '../src/aiPdfText';
+} from '../src/ai/aiPdfText';
 import {
   AiTextStreamExportError,
   applyAiLiveTextEdit,
   buildLiteralTjOperator,
   canEditAiLiveTextOnNode,
   getAiLiveTextInfo,
-} from '../src/aiTextEdit';
-import { readFirstPageContentStreamText } from '../src/aiVectorShapes';
-import { captureState, getTextInfo, restoreState } from '../src/edit';
-import { walk, type Doc, type Node } from '../src/model';
-import { asAiLayerStub, initAiLayerMeta } from '../src/aiLayerMeta';
+} from '../src/ai/aiTextEdit';
+import { readFirstPageContentStreamText } from '../src/ai/aiVectorShapes';
+import { captureState, getTextInfo, restoreState } from '../src/operations/edit';
+import { walk, type Doc, type Node } from '../src/core/model';
+import { asAiLayerStub, initAiLayerMeta } from '../src/ai/aiLayerMeta';
 import type { Layer } from 'ag-psd';
 
 const hooks = `export async function resolve(specifier, context, next) {
@@ -177,7 +177,7 @@ EMC`;
 }
 
 async function runImportTests() {
-  const { importAi } = await import('../src/ai');
+  const { importAi } = await import('../src/ai/ai');
 
   const sampleBuf = fs.readFileSync('public/sample.ai');
   const sampleAb = sampleBuf.buffer.slice(sampleBuf.byteOffset, sampleBuf.byteOffset + sampleBuf.byteLength);
@@ -421,8 +421,8 @@ function buildTextExportDoc(streamBody: string, canvasDraw?: (g: ReturnType<Retu
 }
 
 async function runExportTests() {
-  const { exportAi } = await import('../src/ai');
-  const { parsePdfLiveText } = await import('../src/aiPdfText');
+  const { exportAi } = await import('../src/ai/ai');
+  const { parsePdfLiveText } = await import('../src/ai/aiPdfText');
 
   const literalStream = `/OC /MC0 BDC
 q

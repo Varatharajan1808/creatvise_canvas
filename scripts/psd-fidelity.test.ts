@@ -12,9 +12,9 @@ import {
   inspectDocLayers,
   countUnsupportedLayers,
   composeDocPreview,
-} from '../src/psd';
-import { walk, leaves } from '../src/model';
-import { getDocPreviewCanvas } from '../src/psdComposite';
+} from '../src/psd/psd';
+import { walk, leaves } from '../src/core/model';
+import { getDocPreviewCanvas } from '../src/psd/psdComposite';
 
 const fixturePath =
   process.argv[2] ??

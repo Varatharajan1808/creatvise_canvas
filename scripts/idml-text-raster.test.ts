@@ -1,8 +1,8 @@
 /**
  * IDML rasterizer: fillText invocation (mock 2D context).
  */
-import type { Node } from '../src/model';
-import { rasterizeIdmlTextNode } from '../src/idml/rasterText';
+import type { Node } from '../src/core/model';
+import { rasterizeIdmlTextNode } from '../src/indd/rasterText';
 
 const results: { name: string; ok: boolean; detail: string }[] = [];
 const log = (name: string, ok: boolean, detail: string) => {

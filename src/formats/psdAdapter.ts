@@ -1,5 +1,5 @@
-import { capabilitiesFor } from '../formatCaps';
-import { exportPsd, importPsd } from '../psd';
+import { capabilitiesFor } from './formatCaps';
+import { exportPsd, importPsd } from '../psd/psd';
 import type { FormatAdapter } from './types';
 
 export const psdAdapter: FormatAdapter = {

@@ -6,14 +6,14 @@ import path from 'path';
 import { Window } from 'happy-dom';
 import { createCanvas } from '@napi-rs/canvas';
 import { initializeCanvas } from 'ag-psd';
-import { importPsd } from '../src/psd';
-import { walk } from '../src/model';
+import { importPsd } from '../src/psd/psd';
+import { walk } from '../src/core/model';
 import {
   canEditPsdLayerPosition,
   classifyPsdNodeKind,
   isPsdCanvasPickTarget,
   leavesForPositionEdit,
-} from '../src/psdLayerInfo';
+} from '../src/psd/psdLayerInfo';
 
 const fixturePath =
   process.argv[2] ?? process.env.PSD_FIXTURE ?? path.join('C:', 'Users', 'Dwinzo', 'Downloads', '10960916.psd');

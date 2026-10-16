@@ -5,12 +5,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createCanvas } from '@napi-rs/canvas';
 import { Window } from 'happy-dom';
-import { importIdml } from '../src/idml';
-import { isPointInLayer, hitTestCanvasLayer } from '../src/canvasHitTest';
-import { canEditLayerPosition, canEditPsdLayerPosition, leavesForPositionEdit } from '../src/psdLayerInfo';
-import { moveLeavesBy } from '../src/selection';
-import { leaves } from '../src/model';
-import type { Doc } from '../src/model';
+import { importIdml } from '../src/indd/idml';
+import { isPointInLayer, hitTestCanvasLayer } from '../src/canvas/canvasHitTest';
+import { canEditLayerPosition, canEditPsdLayerPosition, leavesForPositionEdit } from '../src/psd/psdLayerInfo';
+import { moveLeavesBy } from '../src/canvas/selection';
+import { leaves } from '../src/core/model';
+import type { Doc } from '../src/core/model';
 
 const window = new Window();
 (globalThis as unknown as { DOMParser: typeof DOMParser }).DOMParser =

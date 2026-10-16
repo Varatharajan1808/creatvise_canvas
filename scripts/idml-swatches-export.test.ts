@@ -3,11 +3,11 @@
  */
 import { Window } from 'happy-dom';
 import JSZip from 'jszip';
-import { importIdml, exportIdml } from '../src/idml';
-import { applyIdmlShapeColor, applyIdmlText } from '../src/idmlEdit';
-import { leaves } from '../src/model';
-import { parseGraphicXmlColors, cmykToRgbHex, resolveSwatchRef } from '../src/idml/swatches';
-import { readPageItemAttribute } from '../src/idml/exportPatch';
+import { importIdml, exportIdml } from '../src/indd/idml';
+import { applyIdmlShapeColor, applyIdmlText } from '../src/indd/idmlEdit';
+import { leaves } from '../src/core/model';
+import { parseGraphicXmlColors, cmykToRgbHex, resolveSwatchRef } from '../src/indd/swatches';
+import { readPageItemAttribute } from '../src/indd/exportPatch';
 
 const window = new Window();
 (globalThis as unknown as { DOMParser: typeof DOMParser }).DOMParser =
@@ -45,7 +45,7 @@ async function buildTextShapeFixture(): Promise<ArrayBuffer> {
   zip.file('Spreads/Spread_s1.xml', spread);
   zip.file('Stories/Story_st.xml', story);
   zip.file('Resources/Graphic.xml', graphic);
-  const { writeIdmlPackage } = await import('../src/idml/zip');
+  const { writeIdmlPackage } = await import('../src/indd/zip');
   return writeIdmlPackage(zip);
 }
 

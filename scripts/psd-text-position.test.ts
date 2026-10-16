@@ -7,11 +7,11 @@
 import { Window } from 'happy-dom';
 import { createCanvas } from '@napi-rs/canvas';
 import { initializeCanvas, readPsd, writePsd, type Layer, type Psd } from 'ag-psd';
-import { importPsd, exportPsd, createSamplePsd, refreshPsdPreviewModeAfterEdit } from '../src/psd';
-import { History, type Command } from '../src/history';
-import { walk, type Doc, type Node } from '../src/model';
-import { applyText, captureState, restoreState, type LayerState } from '../src/edit';
-import { markNodePreviewContentChanged } from '../src/psdComposite';
+import { importPsd, exportPsd, createSamplePsd, refreshPsdPreviewModeAfterEdit } from '../src/psd/psd';
+import { History, type Command } from '../src/core/history';
+import { walk, type Doc, type Node } from '../src/core/model';
+import { applyText, captureState, restoreState, type LayerState } from '../src/operations/edit';
+import { markNodePreviewContentChanged } from '../src/psd/psdComposite';
 
 const results: { name: string; ok: boolean; detail: string }[] = [];
 const log = (name: string, ok: boolean, detail: string) => {

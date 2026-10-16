@@ -7,9 +7,9 @@ import path from 'path';
 import { Window } from 'happy-dom';
 import { createCanvas } from '@napi-rs/canvas';
 import { initializeCanvas, readPsd, writePsd, type Layer, type Psd } from 'ag-psd';
-import { importPsd, exportPsd, renderComposite, refreshPsdPreviewModeAfterEdit } from '../src/psd';
-import { History } from '../src/history';
-import { walk, type Doc, type Node } from '../src/model';
+import { importPsd, exportPsd, renderComposite, refreshPsdPreviewModeAfterEdit } from '../src/psd/psd';
+import { History } from '../src/core/history';
+import { walk, type Doc, type Node } from '../src/core/model';
 import {
   executeGroupCreation,
   executeUngroup,
@@ -17,10 +17,10 @@ import {
   groupUngroupCommand,
   planGroupCreation,
   planUngroup,
-} from '../src/groupOps';
-import { assertModelSourceTreeInSync } from '../src/sourceTree';
-import { moveLeavesBy } from '../src/selection';
-import { composeDocPreview } from '../src/psdComposite';
+} from '../src/operations/groupOps';
+import { assertModelSourceTreeInSync } from '../src/core/sourceTree';
+import { moveLeavesBy } from '../src/canvas/selection';
+import { composeDocPreview } from '../src/psd/psdComposite';
 
 const results: { name: string; ok: boolean; detail: string; kind: 'structural' | 'visual' }[] = [];
 const log = (name: string, ok: boolean, detail: string, kind: 'structural' | 'visual' = 'structural') => {

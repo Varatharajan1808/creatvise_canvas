@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import type { Doc, Node } from '../src/model';
+import type { Doc, Node } from '../src/core/model';
 import {
   MARQUEE_DRAG_THRESHOLD_PX,
   nodesInMarqueeRect,
@@ -8,7 +8,7 @@ import {
   selectionFromMarqueeHits,
   emptySelection,
   type ScreenProjection,
-} from '../src/selection';
+} from '../src/canvas/selection';
  
 function leaf(id: string, x: number, y: number, w: number, h: number): Node {
   return {

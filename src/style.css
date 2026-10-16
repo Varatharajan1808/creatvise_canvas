@@ -96,7 +96,10 @@ body {
   z-index: 10;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
   min-width: 0;
+  max-width: 100vw;
+  box-sizing: border-box;
   overflow-x: auto;
+  overflow-y: hidden;
   scrollbar-width: none;
 }
 
@@ -254,6 +257,7 @@ button:disabled,
 
 .grow {
   flex: 1;
+  min-width: 4px;
 }
 
 .save-status-wrap {
@@ -265,6 +269,7 @@ button:disabled,
   background: rgba(0, 0, 0, 0.2);
   border: 1px solid var(--line-subtle);
   font-size: 11px;
+  flex-shrink: 0;
 }
 
 .save-dot {
@@ -363,6 +368,171 @@ button:disabled,
 
 .btn-export:active {
   transform: translateY(0);
+}
+
+/* ==========================================================================
+   Header Responsive / Adaptive Styles
+   ========================================================================== */
+@media (max-width: 1520px) {
+  #top {
+    gap: 6px;
+    padding: 0 12px;
+  }
+
+  .tool-group {
+    gap: 2px;
+    padding: 2px 3px;
+  }
+
+  .btn-tool {
+    padding: 3px 6px;
+    gap: 4px;
+  }
+
+  /* Collapse edit group text labels to compact icon buttons */
+  #btn-undo span,
+  #btn-redo span,
+  #btn-duplicate span,
+  #btn-group span,
+  #btn-ungroup span,
+  #btn-delete span {
+    display: none;
+  }
+
+  #btn-undo,
+  #btn-redo,
+  #btn-duplicate,
+  #btn-group,
+  #btn-ungroup,
+  #btn-delete {
+    width: 27px;
+    padding: 0;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 1280px) {
+  #top {
+    gap: 5px;
+    padding: 0 10px;
+  }
+
+  /* Collapse Fit and Clear workspace labels to icon buttons */
+  #btn-fit span,
+  #btn-clear span {
+    display: none;
+  }
+
+  #btn-fit,
+  #btn-clear {
+    width: 27px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  /* Shorten sample button labels to PSD, AI, INDD */
+  #btn-sample span {
+    font-size: 0;
+  }
+  #btn-sample span::after {
+    content: 'PSD';
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  #btn-sample-ai span {
+    font-size: 0;
+  }
+  #btn-sample-ai span::after {
+    content: 'AI';
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  #btn-sample-indd span {
+    font-size: 0;
+  }
+  #btn-sample-indd span::after {
+    content: 'INDD';
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  /* Compact save status display */
+  #save-state {
+    display: none;
+  }
+
+  .save-status-wrap {
+    padding: 4px 6px;
+  }
+}
+
+@media (max-width: 1080px) {
+  /* Collapse Open file & Open folder labels to icon buttons */
+  #btn-open span,
+  #btn-open-folder span {
+    display: none;
+  }
+
+  #btn-open,
+  #btn-open-folder {
+    width: 27px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .brand-badge {
+    display: none;
+  }
+
+  .brand {
+    gap: 6px;
+    margin-right: 2px;
+  }
+}
+
+@media (max-width: 880px) {
+  /* Collapse sample buttons to icon buttons */
+  #btn-sample span,
+  #btn-sample-ai span,
+  #btn-sample-indd span {
+    display: none;
+  }
+
+  #btn-sample,
+  #btn-sample-ai,
+  #btn-sample-indd {
+    width: 27px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .brand-text {
+    display: none;
+  }
+}
+
+@media (max-width: 680px) {
+  #btn-sample,
+  #btn-sample-ai,
+  #btn-sample-indd {
+    display: none;
+  }
+
+  .top-divider:nth-of-type(1) {
+    display: none;
+  }
+}
+
+@media (max-width: 540px) {
+  #btn-export span {
+    display: none;
+  }
+
+  #btn-export {
+    padding: 0 8px;
+  }
 }
 
 /* ==========================================================================

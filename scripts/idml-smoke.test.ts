@@ -10,8 +10,8 @@ const window = new Window();
   window.DOMParser as unknown as typeof DOMParser;
 (globalThis as unknown as { document: Document }).document = window.document as unknown as Document;
 
-import { importIdml, createSampleIdml, childByLocal, elementsLocalCI } from '../src/idml';
-import { IDML_MIMETYPE } from '../src/idml/zip';
+import { importIdml, createSampleIdml, childByLocal, elementsLocalCI } from '../src/indd/idml';
+import { IDML_MIMETYPE } from '../src/indd/zip';
 
 const results: { name: string; ok: boolean; detail: string }[] = [];
 const log = (name: string, ok: boolean, detail: string) => {

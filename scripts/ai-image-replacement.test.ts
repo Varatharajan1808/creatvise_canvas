@@ -18,22 +18,22 @@ import {
   supportedPlacedImageRuns,
   decodeSupportedImageXObjectBytes,
   type PageImageXObjectInfo,
-} from '../src/aiPdfImages';
+} from '../src/ai/aiPdfImages';
 import {
   applyAiPlacedImagePreviewReplace,
   canReplaceAiPlacedImageOnNode,
-} from '../src/aiImageEdit';
-import { docHasAiImageStreamEdits } from '../src/aiImageExport';
+} from '../src/ai/aiImageEdit';
+import { docHasAiImageStreamEdits } from '../src/ai/aiImageExport';
 import {
   aiPlacedImageReplaceBlockedReason,
   canReplaceAiImageOnNode,
-} from '../src/formatCaps';
-import { readFirstPageContentStreamText } from '../src/aiVectorShapes';
-import { captureState, restoreState } from '../src/edit';
-import { asAiLayerStub, initAiLayerMeta } from '../src/aiLayerMeta';
-import { walk, type Doc, type Node } from '../src/model';
+} from '../src/formats/formatCaps';
+import { readFirstPageContentStreamText } from '../src/ai/aiVectorShapes';
+import { captureState, restoreState } from '../src/operations/edit';
+import { asAiLayerStub, initAiLayerMeta } from '../src/ai/aiLayerMeta';
+import { walk, type Doc, type Node } from '../src/core/model';
 import type { Layer } from 'ag-psd';
-import type { AiPlacedImageRun } from '../src/aiPdfImages';
+import type { AiPlacedImageRun } from '../src/ai/aiPdfImages';
 
 const hooks = `export async function resolve(specifier, context, next) {
   if (specifier.endsWith('?url')) return { url: 'data:text/javascript,export%20default%20%22%22', shortCircuit: true };
@@ -426,7 +426,7 @@ async function runPreviewHelperTests() {
 }
 
 async function runImportAndPreviewTests() {
-  const { importAi } = await import('../src/ai');
+  const { importAi } = await import('../src/ai/ai');
   const fixturePath = ensureFixtureOnDisk();
   const doc = await importAi('simple-placed-image.ai', bufToArrayBuffer(fs.readFileSync(fixturePath)));
 
@@ -509,7 +509,7 @@ EMC`,
 }
 
 async function runUiPolicyTests() {
-  const { importAi } = await import('../src/ai');
+  const { importAi } = await import('../src/ai/ai');
   const fixturePath = ensureFixtureOnDisk();
   const doc = await importAi('simple-placed-image.ai', bufToArrayBuffer(fs.readFileSync(fixturePath)));
   const leaf = firstImageLeaf(doc);
@@ -544,7 +544,7 @@ EMC`,
 }
 
 async function runEndToEndWorkflowTests() {
-  const { importAi, exportAi } = await import('../src/ai');
+  const { importAi, exportAi } = await import('../src/ai/ai');
   const fixturePath = ensureFixtureOnDisk();
   const originalBuf = bufToArrayBuffer(fs.readFileSync(fixturePath));
 
@@ -604,7 +604,7 @@ async function runEndToEndWorkflowTests() {
 }
 
 async function runExportTests() {
-  const { importAi, exportAi } = await import('../src/ai');
+  const { importAi, exportAi } = await import('../src/ai/ai');
   const fixturePath = ensureFixtureOnDisk();
   const originalBuf = bufToArrayBuffer(fs.readFileSync(fixturePath));
 

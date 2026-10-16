@@ -6,9 +6,9 @@ import path from 'node:path';
 import { Window } from 'happy-dom';
 import JSZip from 'jszip';
 import { loadImage } from '@napi-rs/canvas';
-import { importIdml, exportIdml, createSampleIdml } from '../src/idml';
-import { setPlacedImageDecodeHookForTests } from '../src/idml/placedImage';
-import { writeIdmlPackage } from '../src/idml/zip';
+import { importIdml, exportIdml, createSampleIdml } from '../src/indd/idml';
+import { setPlacedImageDecodeHookForTests } from '../src/indd/placedImage';
+import { writeIdmlPackage } from '../src/indd/zip';
 
 const window = new Window();
 (globalThis as unknown as { DOMParser: typeof DOMParser }).DOMParser =

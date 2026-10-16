@@ -2,7 +2,7 @@
  * AI Group hardening tests: nested grouping, stack mutation detection, ancestor normalization,
  * undo/redo cycling, and defensive edge cases.
  */
-import type { Doc, Node } from '../src/model';
+import type { Doc, Node } from '../src/core/model';
 import type { Layer } from 'ag-psd';
 import {
   validateAiGroupCreation,
@@ -15,7 +15,7 @@ import {
   aiUngroupCommand,
   normalizeAiGroupSelection,
   createAiGroupNode,
-} from '../src/aiGroupOps';
+} from '../src/ai/aiGroupOps';
 
 const results: { name: string; ok: boolean; detail: string }[] = [];
 const log = (name: string, ok: boolean, detail: string) => {

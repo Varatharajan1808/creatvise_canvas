@@ -1,5 +1,5 @@
-import type { Doc } from '../model';
-import type { FormatCapabilities, SupportedImportFormat } from '../formatCaps';
+import type { Doc } from '../core/model';
+import type { FormatCapabilities, SupportedImportFormat } from './formatCaps';
 
 /** One editable file format: how its bytes become a `Doc` and how an edited `Doc` becomes bytes again. */
 export interface FormatAdapter {

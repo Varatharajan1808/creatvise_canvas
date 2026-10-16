@@ -11,10 +11,10 @@ const window = new Window();
   window.DOMParser as unknown as typeof DOMParser;
 (globalThis as unknown as { document: Document }).document = window.document as unknown as Document;
 
-import { importIdml, createSampleIdml, layoutFromPageElement, spreadToCanvas, pageItemDocPlacement } from '../src/idml';
-import { parseMatrix6, apply6, rotationDegreesFromMatrix6 } from '../src/idml/matrix';
-import { leaves } from '../src/model';
-import { rasterizeIdmlTextNode, textGlyphsUprightInCanvas, idmlTextRasterScale } from '../src/idml/rasterText';
+import { importIdml, createSampleIdml, layoutFromPageElement, spreadToCanvas, pageItemDocPlacement } from '../src/indd/idml';
+import { parseMatrix6, apply6, rotationDegreesFromMatrix6 } from '../src/indd/matrix';
+import { leaves } from '../src/core/model';
+import { rasterizeIdmlTextNode, textGlyphsUprightInCanvas, idmlTextRasterScale } from '../src/indd/rasterText';
 import { createCanvas } from '@napi-rs/canvas';
 
 const results: { name: string; ok: boolean; detail: string }[] = [];
@@ -63,7 +63,7 @@ async function main() {
   zip.file('designmap.xml', '<?xml version="1.0"?><Document><idPkg:Spread src="Spreads/Spread_s1.xml"/></Document>');
   zip.file('Spreads/Spread_s1.xml', shiftedPageSpread);
   zip.file('Stories/Story_st1.xml', shiftedStory);
-  const { writeIdmlPackage } = await import('../src/idml/zip');
+  const { writeIdmlPackage } = await import('../src/indd/zip');
   const shiftedBytes = await writeIdmlPackage(zip);
 
   const shiftedDoc = await importIdml('shifted.idml', shiftedBytes, 'idml');

@@ -4,15 +4,15 @@
 import { Window } from 'happy-dom';
 import { createCanvas } from '@napi-rs/canvas';
 import { initializeCanvas, writePsd, type Layer, type Psd } from 'ag-psd';
-import { importPsd } from '../src/psd';
-import type { Doc, Node } from '../src/model';
+import { importPsd } from '../src/psd/psd';
+import type { Doc, Node } from '../src/core/model';
 import {
   normalizeGroupSelection,
   validateGroupCreation,
   validateUngroup,
-} from '../src/groupOps';
-import { canGroupLayers } from '../src/formatCaps';
-import { emptySelection, toggleNodeInSelection } from '../src/selection';
+} from '../src/operations/groupOps';
+import { canGroupLayers } from '../src/formats/formatCaps';
+import { emptySelection, toggleNodeInSelection } from '../src/canvas/selection';
 
 const results: { name: string; ok: boolean; detail: string }[] = [];
 const log = (name: string, ok: boolean, detail: string) => {

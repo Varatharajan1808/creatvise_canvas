@@ -20,7 +20,7 @@ window.document.createElement = ((tag: string, options?: unknown) => {
 }) as typeof window.document.createElement;
 initializeCanvas((w, h) => createCanvas(w, h) as unknown as HTMLCanvasElement);
 
-const { createSamplePsd } = await import('../src/psd');
+const { createSamplePsd } = await import('../src/psd/psd');
 const dir = path.join('artifacts');
 fs.mkdirSync(dir, { recursive: true });
 fs.writeFileSync(path.join(dir, 'fixture-opacity.psd'), Buffer.from(createSamplePsd()));

@@ -5,10 +5,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createCanvas } from '@napi-rs/canvas';
 import { Window } from 'happy-dom';
-import { importIdml } from '../src/idml';
-import { cmykToRgbHex } from '../src/idml/swatches';
-import { rasterizeIdmlTextNode, countTextGlyphPixels } from '../src/idml/rasterText';
-import { leaves } from '../src/model';
+import { importIdml } from '../src/indd/idml';
+import { cmykToRgbHex } from '../src/indd/swatches';
+import { rasterizeIdmlTextNode, countTextGlyphPixels } from '../src/indd/rasterText';
+import { leaves } from '../src/core/model';
 
 const window = new Window();
 (globalThis as unknown as { DOMParser: typeof DOMParser }).DOMParser =

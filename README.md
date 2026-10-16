@@ -1,8 +1,8 @@
 # Creatvise Canvas — WebGPU High-Performance Studio
 
-> High-performance infinite canvas built with **Three.js (`WebGPURenderer`)** and **TypeScript** for importing, viewing, editing, and exporting professional design formats: **Adobe Photoshop (`.psd`)** and **Adobe Illustrator (`.ai`)**, with **Adobe InDesign (`.indd` / `.idml`)** currently in an unconfirmed research / PoC phase.
+> High-performance infinite canvas built with **Three.js (`WebGPURenderer`)** and **TypeScript** for importing, viewing, editing, and exporting professional design formats: **Adobe Photoshop (`.psd`)**, **Adobe Illustrator (`.ai`)**, and **Adobe InDesign (`.indd` / `.idml`)**.
 
-Creatvise Canvas is engineered on a **non-destructive "patch-original" architecture**: rather than regenerating complex design files from scratch or flattening them to simple bitmaps, it surgically patches modified properties (positions, text, fills, visibility, opacity, marked content) back into the original file structures. All un-modeled native structures—including smart objects, layer effects, vector masks, and proprietary application metadata (`AIPrivateData`, Photoshop descriptors)—remain 100% intact.
+Creatvise Canvas is engineered on a **non-destructive "patch-original" architecture**: rather than regenerating complex design files from scratch or flattening them to simple bitmaps, it surgically patches modified properties (positions, text, fills, visibility, opacity, marked content) back into the original file structures. All un-modeled native structures—including smart objects, layer effects, vector masks, and proprietary application metadata (`AIPrivateData`, Photoshop descriptors, InDesign stories)—remain 100% intact.
 
 ---
 
@@ -11,16 +11,17 @@ Creatvise Canvas is engineered on a **non-destructive "patch-original" architect
 For exhaustive architectural specifications, mathematical formulas, and format-specific pipelines, refer to the dedicated format guides:
 
 - 📄 **[PSD.md](PSD.md)** — Adobe Photoshop: Embedded composite vs `file-base-overlay` preview engine, 9 adjustment layer simulation algorithms, 10+ custom blend modes, clipping/masks, hit-testing, and `ag-psd` non-destructive export.
-- 📄 **[AI.md](AI.md)** — Adobe Illustrator: PDF stream parsing (`pdfjs-dist`), Optional Content Groups (OCG), transform matrix (`cm`) patching, `/ExtGState` opacity, marked-content duplicate export, and `pdf-lib` pipeline.
-- 📄 **[INDD.md](INDD.md)** — Adobe InDesign *(Unconfirmed / Not Implemented in App)*: Binary format challenges, IDML XML architecture, standalone PoC findings, and future roadmap. Once implemented, this guide will be updated.
+- 📄 **[AI.md](AI.md)** — Adobe Illustrator: PDF stream parsing (`pdfjs-dist`), Optional Content Groups (OCG), transform matrix (`cm`) patching, `/ExtGState` opacity, live text editing, placed image replacement, marked-content duplicate export, and `pdf-lib` pipeline.
+- 📄 **[INDD.md](INDD.md)** — Adobe InDesign: Native IDML package parsing (`jszip`), sharp text typography rasterization, 6-element affine matrix transforms, desktop automation bridge (`server/index.mjs`), status indicator chip, and XML non-destructive patch export.
 
 ---
 
 ## Quickstart & How to Run
 
 ### Prerequisites
-- **Node.js 18+** (tested on Node 20 / 22)
+- **Node.js 18+** (tested on Node 20 / 22 / 24)
 - Modern web browser with **WebGPU** support (Chrome 113+, Edge 113+) or WebGL2 fallback.
+- *(Optional)* Adobe InDesign Desktop (for `.indd` native conversion bridge).
 
 ### Installation & Development Server
 
@@ -36,9 +37,12 @@ npm run build
 
 # 4. Preview production build locally
 npm run preview
+
+# 5. Start optional InDesign Desktop middleware server (port 3001)
+npm run server
 ```
 
-Open the printed localhost URL in Chrome or Edge (e.g. `http://localhost:5173/`).
+Open the printed localhost URL in your browser (e.g. `http://localhost:5173/`).
 
 ---
 
@@ -59,7 +63,16 @@ npm run test:ai
 # Test Illustrator shape detection, stroke, and fill color patching
 npm run test:ai:shapes
 
-# Run format registry capability checks (56 checks)
+# Run InDesign / IDML test suites (33 tests including typography, transforms, swatches)
+npm run test:idml
+
+# Run Phase 5 IDML package integrity tests
+npm run test:idml:phase5
+
+# Run InDesign desktop middleware health & conversion tests
+npm run test:indesign
+
+# Run format registry capability checks (60 checks + cross-format color tests)
 npm run test:formats
 
 # Run recursive folder import and classification tests
@@ -67,18 +80,6 @@ npm run test:folder
 
 # Profile adjustment layer computation & caching performance
 npm run psd:bench
-
-# Report luminance agreement baseline against Photoshop embedded composites
-npm run psd:baseline
-
-# Inspect supported and unsupported features in PSD fixtures
-npm run psd:inventory
-
-# Run PoC-A: IDML automated unzip, patch, and repack test
-npm run poc:idml:a
-
-# Run PoC-B: Native INDD desktop orchestrator (requires Adobe InDesign)
-npm run poc:indd:b
 ```
 
 ---
@@ -87,86 +88,161 @@ npm run poc:indd:b
 
 ```mermaid
 graph TD
-    subgraph Ingestion ["1. Format Ingestion & Adapters"]
-        PSD_IN[".psd File"] -->|ag-psd| ADAPT_PSD["PSD Adapter"]
-        AI_IN[".ai File"] -->|pdfjs-dist| ADAPT_AI["AI Adapter (OCG)"]
-        INDD_IN[".idml Package (PoC)"] -.->|jszip| ADAPT_IDML["IDML Adapter (Unconfirmed PoC)"]
+    subgraph Ingestion ["1. Format Ingestion & Adapters (src/formats/)"]
+        PSD_IN[".psd File"] -->|ag-psd| ADAPT_PSD["psdAdapter"]
+        AI_IN[".ai File"] -->|pdfjs-dist| ADAPT_AI["aiAdapter"]
+        INDD_IN[".idml / .indd File"] -->|jszip / bridge| ADAPT_INDD["inddAdapter"]
     end
 
-    subgraph Core ["2. Unified Document Model (src/model.ts)"]
+    subgraph Core ["2. Core Document Engine (src/core/)"]
         ADAPT_PSD --> DOC["Doc (Dimensions, Zoom, Pan, doc.original)"]
         ADAPT_AI --> DOC
-        ADAPT_IDML -.-> DOC
-        DOC --> TREE["Node Hierarchy Tree (Group, Raster, Text, Shape, Adjustment)"]
+        ADAPT_INDD --> DOC
+        DOC --> TREE["Node Hierarchy Tree (src/core/model.ts, src/core/sourceTree.ts)"]
+        TREE <--> HIST["Undo / Redo History (src/core/history.ts, src/core/docHistory.ts)"]
+        TREE <--> IDB["Workspace & Storage Engine (src/core/storage.ts, src/core/workspace.ts)"]
     end
 
-    subgraph Viewport ["3. Three.js WebGPU Infinite Canvas (src/viewport.ts)"]
-        TREE --> SCENE["Orthographic Camera (1 unit = 1 px)"]
-        SCENE --> COMPOSITE["Dual-Mode Compositor (Embedded Composite vs file-base-overlay)"]
-        COMPOSITE --> HIT["Alpha Discrimination Hit-Testing (alpha > 8)"]
-        HIT --> BBOX["Interactive Transform Bounding Box (Move, Resize, Rotate)"]
+    subgraph Canvas ["3. Canvas & Interaction Engine (src/canvas/)"]
+        TREE --> VIEWPORT["Viewport & Orthographic Camera (src/canvas/viewport.ts)"]
+        VIEWPORT --> HIT["Alpha Discrimination Hit-Testing (src/canvas/canvasHitTest.ts)"]
+        HIT --> BBOX["Multi-Selection & Transform Bounding Box (src/canvas/selection.ts)"]
     end
 
-    subgraph State ["4. UI, History & Persistence"]
-        TREE <--> PANEL["Layers & Inspector Panels (src/panel.ts)"]
-        TREE <--> HIST["Transactional Undo / Redo (src/docHistory.ts)"]
-        TREE <--> IDB["IndexedDB Dual-Store Autosave (src/storage.ts)"]
+    subgraph Operations ["4. Document Operations & UI (src/operations/, src/ui/)"]
+        BBOX <--> EDIT["Layer & Text Editing (src/operations/edit.ts)"]
+        BBOX <--> GROUP["Group & Ungroup Operations (src/operations/groupOps.ts)"]
+        EDIT <--> UI["Layers Panel, Inspector & Modals (src/ui/panel.ts, src/ui/popup.ts)"]
     end
 
     subgraph Egress ["5. Non-Destructive Patch-Original Export"]
         DOC & TREE -->|Surgical ag-psd Patch| PSD_OUT[".psd Export (Smart Objects & Effects Preserved)"]
         DOC & TREE -->|pdf-lib Stream Patch| AI_OUT[".ai Export (AIPrivateData & PDF Synced)"]
-        DOC & TREE -.->|jszip XML Patch| IDML_OUT[".idml Export (PoC Script Only)"]
+        DOC & TREE -->|jszip XML Patch| IDML_OUT[".idml / .indd Export (Pristine Package Output)"]
     end
 ```
 
-### 1. Unified Document Model (`src/model.ts`)
-A format-agnostic scene graph representation:
-- **`Doc`**: Canvas document containing width, height, offset, zoom, original untouched binary bytes (`doc.original`), format metadata, and root node tree.
-- **`Node`**: Recursive tree element supporting `group`, `raster`, `text`, `shape`, and `adjustment` types. Each node references its underlying format handle (e.g., `ag-psd` layer or PDF content stream) to enable surgical re-export.
+---
 
-### 2. Three.js WebGPU Infinite Canvas Viewport (`src/viewport.ts`)
-- Rendered using Three.js with an orthographic camera where **1 canvas unit = 1 pixel**.
-- Layers are textured quads rendered in back-to-front depth order.
-- Pixel-accurate canvas hit-testing (`src/canvasHitTest.ts`): ignores transparent pixels ($\alpha \le 8$) and $0\%$ opacity placeholders, enabling natural click-to-select directly on the stage.
-- Interactive bounding box with drag-to-move, 8-point resize handles, and top rotation anchor.
+## Modular Directory Structure (`src/`)
 
-### 3. Non-Destructive "Patch-Original" Pipeline
-- **PSD Export (`src/psd.ts`)**: Patches layer names, coordinates, opacities, visibility, point text, and shape fills into the in-memory `ag-psd` structure. Smart objects, vector masks, and layer effects remain 100% intact.
-- **AI Export (`src/aiPdfLib.ts`)**: Applies vector transformations (`cm` matrix), opacity dictionaries (`/ExtGState`), and duplicate marked-content blocks (`/MCn BDC`) using `pdf-lib` while safely retaining Illustrator-native `AIPrivateData` streams.
-- **IDML Export (`scripts/poc/`)**: Standalone PoC script demonstrating XML story node and geometry updates, repacked with an uncompressed `mimetype` at offset 0 (not in production app).
-
-### 4. Dual-Store Persistence & Autosave (`src/storage.ts`)
-- **Dual-Store IndexedDB Engine**:
-  - `files` store: Stores raw, unmutated binary bytes of open documents.
-  - `workspace` store: Stores lightweight delta records (layer transforms, text edits, fills, canvas pan/zoom).
-- **Debounced Autosave (600ms)**: Real-time save status indicator in the top navigation bar (`All changes saved`, `Saving…`, `Unsaved changes…`).
-- **Safe Session Restore**: Replays saved edits on top of stored originals upon browser reload—preventing destructive bakes.
+```
+src/
+├── ai/                     # Adobe Illustrator & PDF Engine
+│   ├── index.ts            # Public barrel export
+│   ├── ai.ts               # Master AI import & export pipeline
+│   ├── aiPdfLib.ts         # PDF stream manipulation via pdf-lib
+│   ├── aiPdfText.ts        # PDF live text decoding & streams
+│   ├── aiPdfImages.ts      # Embedded PDF raster image extractor
+│   ├── aiVectorShapes.ts   # Vector path parsing & shape rendering
+│   ├── aiOcgOrderImport.ts # Optional Content Groups (OCG) order resolver
+│   ├── aiGroupOps.ts       # AI grouping / ungrouping commands
+│   ├── aiReorder.ts        # AI layer reordering
+│   ├── aiLayerMeta.ts      # AI metadata & marked content duplication
+│   ├── aiImageEdit.ts      # Placed image replacement
+│   └── aiTextEdit.ts       # Live text editing synchronization
+│
+├── canvas/                 # Viewport, Stage & Interaction Engine
+│   ├── index.ts            # Public barrel export
+│   ├── viewport.ts         # Three.js stage, zoom, pan, screenToWorld
+│   ├── selection.ts        # Multi-selection, bounding boxes, drag transforms
+│   ├── canvasHitTest.ts    # Stage raycasting & alpha discrimination
+│   └── fps.ts              # FPS tracker & performance monitor
+│
+├── core/                   # Document Engine & State Persistence
+│   ├── index.ts            # Public barrel export
+│   ├── model.ts            # Canonical Doc, Node, and tree traversal models
+│   ├── sourceTree.ts       # Layer hierarchy mutations & sibling reordering
+│   ├── history.ts          # Command pattern undo/redo stack
+│   ├── docHistory.ts       # Multi-document tab management
+│   ├── workspace.ts        # Workspace serialization & restoration
+│   └── storage.ts          # LocalStorage persistence & cache
+│
+├── formats/                # Format Adapter Registry & Ingestion Pipeline
+│   ├── index.ts            # Registry instance & format dispatchers
+│   ├── registry.ts         # Extensible plugin adapter registry
+│   ├── formatCaps.ts       # Capabilities matrix & blocked reasons
+│   ├── formatImport.ts     # Multi-format import dispatcher
+│   ├── formatExport.ts     # Multi-format export dispatcher
+│   ├── folderImport.ts     # Recursive directory picker & batch scanner
+│   ├── backend.ts          # InDesign bridge communication & health
+│   ├── psdAdapter.ts       # Photoshop format adapter
+│   ├── aiAdapter.ts        # Illustrator format adapter
+│   └── inddAdapter.ts      # InDesign format adapter
+│
+├── indd/                   # Adobe InDesign & IDML Engine
+│   ├── index.ts            # Public barrel export
+│   ├── idml.ts             # Top-level IDML import / export orchestrator
+│   ├── idmlEdit.ts         # Layer editability, transforms & rasterization
+│   ├── idmlRotatePointer.ts# Interactive rotation pointer tracking
+│   ├── idmlVisualRotation.ts# CSS & Three.js visual rotation math
+│   ├── inddImportReport.ts # Import report generator & downloads
+│   ├── indesignStatus.ts   # InDesign middleware health state & status chip
+│   ├── exportPatch.ts      # Surgical XML spread & story patcher
+│   ├── linkImageFormat.ts  # Linked asset MIME detection
+│   ├── matrix.ts           # 6-element 2D affine matrix math
+│   ├── objectStyles.ts     # Object style fill & stroke resolvers
+│   ├── placedImage.ts      # Placed image placeholder & previews
+│   ├── rasterText.ts       # Sharp typography text rasterizer
+│   ├── storyExport.ts      # Story XML serializer
+│   ├── storyParse.ts       # CharacterStyleRange XML parser
+│   ├── swatches.ts         # Swatch definitions & color models
+│   ├── textFrameParse.ts   # Text frame boundary parser
+│   ├── textLayout.ts       # Font layout & line wrapping
+│   ├── textStyles.ts       # Font family & style resolvers
+│   ├── types.ts            # IDML AST interfaces
+│   └── zip.ts              # JSZip packaging with offset-0 mimetype
+│
+├── operations/             # Canvas Operations & Layer Mutations
+│   ├── index.ts            # Public barrel export
+│   ├── edit.ts             # Text, shape color, border, and state capture
+│   └── groupOps.ts         # Group creation, ungrouping & validations
+│
+├── psd/                    # Adobe Photoshop Engine
+│   ├── index.ts            # Public barrel export
+│   ├── psd.ts              # PSD import, export, sample creator
+│   ├── psdComposite.ts     # Multi-layer canvas compositor & dirty patcher
+│   ├── psdCompositeRule.ts # Decision engine: embedded composite vs 2D stack
+│   ├── psdBlend.ts         # 10+ per-pixel blend mode algorithms
+│   ├── psdLayerEffects.ts  # Drop Shadow, Outer Glow, Stroke
+│   ├── psdLayerInfo.ts     # PSD layer bounds & editability guards
+│   ├── psdAdjustment.ts    # Master adjustment layer pipeline
+│   └── psdAdjustment*.ts   # Curves, Hue/Sat, Color Balance, B&W, LUT, Vib
+│
+├── ui/                     # User Interface Overlays
+│   ├── index.ts            # Public barrel export
+│   ├── panel.ts            # Layers tree panel & properties inspector
+│   ├── popup.ts            # Modal dialogs, prompts, toasts & alerts
+│   └── tooltip.ts          # Custom hover tooltips
+│
+├── main.ts                 # Application Bootstrap & Event Wiring
+├── style.css               # Global Stylesheet & Design Tokens
+└── utils.ts                # Shared Helper Utilities
+```
 
 ---
 
-## Cross-Format Status Matrix
+## Cross-Format Capabilities Matrix
 
-| Capability | Adobe Photoshop (`.psd`) | Adobe Illustrator (`.ai`) | Adobe InDesign (`.indd` / `.idml`) *(Unconfirmed / Not in App)* |
+| Capability | Adobe Photoshop (`.psd`) | Adobe Illustrator (`.ai`) | Adobe InDesign (`.indd` / `.idml`) |
 |---|:---:|:---:|:---:|
-| **File Import** | **Works** (`ag-psd`) | **Works** (PDF-compatible `.ai`) | **Not in App** (App blocks `.indd`; PoC script for IDML) |
-| **Folder / Batch Import** | **Works** (recursive traversal) | **Works** (recursive traversal) | Not implemented |
-| **Infinite Canvas Rendering** | **Three.js WebGPU / WebGL2** | **Three.js WebGPU / WebGL2** | Not implemented |
-| **Layer Tree & Selection Panel** | **Works** (full hierarchy) | **Works** (OCG layers; flat fallback) | Not implemented |
-| **Canvas Hit-Test (Alpha > 8)** | **Works** (smallest-area tie-break) | **Works** (rendered alpha mask) | Not implemented |
-| **Interactive Move / Pan** | **Works** | **Works** (`cm` matrix patch) | Not implemented |
-| **Interactive Resize & Rotate** | **Works** | **Works** (`cm` matrix patch) | Not implemented |
-| **Layer Visibility Toggle** | **Works** | **Works** (OCG `/OFF` catalog patch) | Not implemented |
-| **Layer Opacity Slider** | **Works** (live scrub) | **Works** (`/ExtGState` `/ca` patch) | Not implemented |
-| **Layer Duplication (`Ctrl+D`)** | **Works** | **Works** (Marked-content clone) | Not implemented |
-| **Layer Delete** | **Works** | **Works** (omitted on export) | Not implemented |
-| **Point Text Editing** | **Works** (`TySh` engine preserved) | Roadmap (PDF text stream patch) | **PoC script only** (`Story_*.xml` patch) |
-| **Solid Shape Fill / Stroke** | **Works** (`vscg` descriptor) | **Works** (detected rects `rg`/`RG`) | **PoC script only** (`Graphic.xml` patch) |
-| **Adjustment Layers (9 Types)** | **Works** (9 simulated, B/C panel) | N/A | N/A |
-| **Layer Effects (Drop Shadow/Glow)** | **Works** (preview & export intact) | N/A | N/A |
-| **Undo / Redo History** | **Works** (transactional stack) | **Works** (transactional stack) | Not implemented |
-| **Autosave & Session Restore** | **Works** (IndexedDB dual-store) | **Works** (IndexedDB dual-store) | Not implemented |
-| **Non-Destructive Patch Export** | **Works** (`ag-psd` patch) | **Works** (`pdf-lib` patch) | **PoC script only** (`jszip` patch) |
+| **File Import** | **Works** (`ag-psd`) | **Works** (PDF-compatible `.ai`) | **Works** (`.idml` direct, `.indd` via bridge) |
+| **Folder / Batch Import** | **Works** (recursive traversal) | **Works** (recursive traversal) | **Works** (recursive traversal) |
+| **Infinite Canvas Rendering** | **Three.js WebGPU / WebGL2** | **Three.js WebGPU / WebGL2** | **Three.js WebGPU / WebGL2** |
+| **Layer Tree & Selection Panel** | **Works** (full hierarchy) | **Works** (OCG layers; flat fallback) | **Works** (spread items & frames) |
+| **Canvas Hit-Test ($\alpha > 8$)** | **Works** (smallest-area tie-break) | **Works** (rendered alpha mask) | **Works** (geometry bounding box) |
+| **Interactive Move / Pan** | **Works** | **Works** (`cm` matrix patch) | **Works** (`ItemTransform` matrix patch) |
+| **Interactive Resize & Rotate** | **Works** | **Works** (`cm` matrix patch) | **Works** (`ItemTransform` matrix patch) |
+| **Layer Visibility Toggle** | **Works** | **Works** (OCG catalog patch) | **Works** (spread item attribute) |
+| **Layer Opacity Slider** | **Works** (live scrub) | **Works** (`/ExtGState` patch) | **Works** (live scrub) |
+| **Layer Duplication (`Ctrl+D`)** | **Works** | **Works** (Marked-content clone) | **Works** |
+| **Layer Delete** | **Works** | **Works** (omitted on export) | **Works** (spread XML prune) |
+| **Text Editing** | **Works** (`TySh` engine preserved) | **Works** (PDF stream patch) | **Works** (`Story_*.xml` patch) |
+| **Shape Fill / Stroke** | **Works** (`vscg` descriptor) | **Works** (`rg`/`RG` stream patch) | **Works** (swatch & graphic patch) |
+| **Adjustment Layers (9 Types)** | **Works** (9 simulated types) | N/A | N/A |
+| **Layer Effects (Shadow/Glow)** | **Works** (preview & export intact) | N/A | N/A |
+| **Undo / Redo History** | **Works** (transactional stack) | **Works** (transactional stack) | **Works** (transactional stack) |
+| **Non-Destructive Patch Export** | **Works** (`ag-psd` patch) | **Works** (`pdf-lib` patch) | **Works** (`jszip` XML patch) |
 
 ---
 
@@ -184,53 +260,7 @@ A format-agnostic scene graph representation:
 | **Delete Layer** | `Delete` / `Backspace` | Removes selected layer |
 | **Undo / Redo** | `Ctrl + Z` / `Ctrl + Y` (or `Ctrl + Shift + Z`) | Step backward or forward in history |
 | **Rename Layer** | Double-click row in Layers panel | Edit layer name inline |
-| **File Drag & Drop** | Drop PSD/AI files or folders onto stage | Imports documents directly to canvas |
-
----
-
-## Project Structure
-
-```
-creatvise_canvas/
-├── README.md               # Main project documentation & quickstart
-├── PSD.md                  # Deep dive: Photoshop engine, adjustments, compositing & export
-├── AI.md                   # Deep dive: Illustrator engine, OCG layers, PDF streams & export
-├── INDD.md                 # Deep dive: InDesign challenges, IDML architecture & PoC results
-├── public/                 # Static test fixtures (sample.ai, DarkTech_Screen.ai, 11330937.psd)
-│   └── fixtures/           # Synthetic and PoC test assets (IDML, AI shapes, synthetic text)
-├── scripts/                # 38+ automated test suites, benchmarks & baseline scripts
-│   ├── poc/                # InDesign / IDML PoC-A and PoC-B scripts
-│   ├── psd-adjustment-*.test.ts   # Regression tests for all 9 adjustment layers
-│   ├── psd-clipping.test.ts       # Clipping mask isolation tests
-│   ├── psd-composite-rule.test.ts # Embedded vs 2D compositor decision rules
-│   ├── ai-export-roundtrip.test.ts# Illustrator export fidelity tests
-│   ├── ai-duplicate-export.test.ts# Illustrator layer duplication tests
-│   └── folder-import.test.ts      # Recursive folder traversal tests
-├── src/
-│   ├── ai.ts               # Illustrator parser (pdfjs-dist OCG extraction)
-│   ├── aiPdfLib.ts         # Illustrator patch exporter (pdf-lib)
-│   ├── aiVectorShapes.ts   # Detection and color patching for PDF vector paths
-│   ├── canvasHitTest.ts    # Direct stage hit-testing & smallest-area selection
-│   ├── docHistory.ts       # Transactional document history stack
-│   ├── edit.ts             # Layer property mutations & transform helpers
-│   ├── folderImport.ts     # Directory scanner & batch file classifier
-│   ├── formatCaps.ts       # Per-format capability declarations
-│   ├── formats/            # Extensible format adapter registry (PSD, AI)
-│   ├── model.ts            # Canonical Document & Node data models
-│   ├── panel.ts            # UI Layers panel, inspector & adjustment sliders
-│   ├── psd.ts              # PSD file import & non-destructive export (ag-psd)
-│   ├── psdAdjustment.ts    # Unified adjustment layer pipeline & dispatch
-│   ├── psdAdjustment*.ts   # Specialized adjustment algorithms (Curves, HueSat, CB, BW, LUT, Vib)
-│   ├── psdBlend.ts         # Custom per-pixel blend mode mathematics
-│   ├── psdComposite.ts     # Composite restack & file-base-overlay dirty patcher
-│   ├── psdLayerEffects.ts  # Drop Shadow, Outer Glow, and Stroke renderers
-│   ├── storage.ts          # IndexedDB persistence (files & workspace stores)
-│   ├── viewport.ts         # Three.js WebGPURenderer stage & orthographic camera
-│   └── main.ts             # Application controller & event orchestration
-├── package.json            # Project dependencies & npm run scripts
-├── tsconfig.json           # TypeScript configuration
-└── vite.config.ts          # Vite build configuration
-```
+| **File Drag & Drop** | Drop PSD/AI/IDML/INDD files or folders | Imports documents directly to canvas |
 
 ---
 

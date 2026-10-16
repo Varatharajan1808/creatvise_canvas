@@ -19,12 +19,12 @@ window.document.createElement = ((tag: string, options?: unknown) => {
 }) as typeof window.document.createElement;
 initializeCanvas((w, h) => createCanvas(w, h) as unknown as HTMLCanvasElement);
 
-const { importPsd } = await import('../src/psd');
-const C = await import('../src/psdComposite');
-const { applyAdjustmentToCanvas } = await import('../src/psdAdjustment');
-const { evaluateVibranceInto } = await import('../src/psdAdjustmentVibrance');
-const { evaluatePhotoFilterInto } = await import('../src/psdAdjustmentPhotoFilter');
-const { parseCubeLut, sample3dLutInto, resolveColorLookupLut } = await import('../src/psdAdjustmentColorLookup');
+const { importPsd } = await import('../src/psd/psd');
+const C = await import('../src/psd/psdComposite');
+const { applyAdjustmentToCanvas } = await import('../src/psd/psdAdjustment');
+const { evaluateVibranceInto } = await import('../src/psd/psdAdjustmentVibrance');
+const { evaluatePhotoFilterInto } = await import('../src/psd/psdAdjustmentPhotoFilter');
+const { parseCubeLut, sample3dLutInto, resolveColorLookupLut } = await import('../src/psd/psdAdjustmentColorLookup');
 
 const W = 800, H = 600;
 

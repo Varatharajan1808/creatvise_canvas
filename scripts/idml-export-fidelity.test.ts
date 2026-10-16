@@ -5,14 +5,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Window } from 'happy-dom';
 import JSZip from 'jszip';
-import { importIdml, exportIdml, createSampleIdml } from '../src/idml';
-import { applyIdmlText, applyIdmlShapeColor } from '../src/idmlEdit';
-import { leaves } from '../src/model';
+import { importIdml, exportIdml, createSampleIdml } from '../src/indd/idml';
+import { applyIdmlText, applyIdmlShapeColor } from '../src/indd/idmlEdit';
+import { leaves } from '../src/core/model';
 import {
   readPageItemAttribute,
   encodeIdmlStoryContent,
   validateIdmlPackageStructure,
-} from '../src/idml/exportPatch';
+} from '../src/indd/exportPatch';
 
 const window = new Window();
 (globalThis as unknown as { DOMParser: typeof DOMParser }).DOMParser =

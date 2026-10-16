@@ -10,11 +10,11 @@ import {
   idmlTextUsesBoundsHitTest,
   isPointInLayer,
   readCanvasAlpha,
-} from '../src/canvasHitTest';
-import { importIdml } from '../src/idml';
-import { rasterizeIdmlTextNode } from '../src/idml/rasterText';
-import type { Doc, Node } from '../src/model';
-import { leaves } from '../src/model';
+} from '../src/canvas/canvasHitTest';
+import { importIdml } from '../src/indd/idml';
+import { rasterizeIdmlTextNode } from '../src/indd/rasterText';
+import type { Doc, Node } from '../src/core/model';
+import { leaves } from '../src/core/model';
 
 const window = new Window();
 (globalThis as unknown as { DOMParser: typeof DOMParser }).DOMParser =

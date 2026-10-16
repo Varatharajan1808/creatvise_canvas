@@ -15,15 +15,15 @@ window.document.createElement = ((tag: string, options?: unknown) => {
 }) as typeof window.document.createElement;
 initializeCanvas((w, h) => createCanvas(w, h) as unknown as HTMLCanvasElement);
 
-const { importPsd } = await import('../src/psd');
-const C = await import('../src/psdComposite');
+const { importPsd } = await import('../src/psd/psd');
+const C = await import('../src/psd/psdComposite');
 const {
   evaluateLevelsChannel,
   evaluateLegacyBrightnessContrast,
-} = await import('../src/psdAdjustment');
-const { evaluateVibrancePixel } = await import('../src/psdAdjustmentVibrance');
-const { evaluatePhotoFilterPixel } = await import('../src/psdAdjustmentPhotoFilter');
-const { parseCubeLut, sample3dLut } = await import('../src/psdAdjustmentColorLookup');
+} = await import('../src/psd/psdAdjustment');
+const { evaluateVibrancePixel } = await import('../src/psd/psdAdjustmentVibrance');
+const { evaluatePhotoFilterPixel } = await import('../src/psd/psdAdjustmentPhotoFilter');
+const { parseCubeLut, sample3dLut } = await import('../src/psd/psdAdjustmentColorLookup');
 
 // Tracking canvas allocations
 const alloc = { canvases: 0, megapixels: 0 };

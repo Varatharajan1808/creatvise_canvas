@@ -3,13 +3,13 @@
  */
 import { Window } from 'happy-dom';
 import JSZip from 'jszip';
-import { importIdml, exportIdml, createSampleIdml } from '../src/idml';
-import { applyIdmlText } from '../src/idmlEdit';
-import { parseGraphicXmlColors, resolveSwatchRef } from '../src/idml/swatches';
-import { decodeIdmlTextContent } from '../src/idml/storyParse';
-import { readPageItemAttribute } from '../src/idml/exportPatch';
-import { leaves } from '../src/model';
-import { hexToRgb, rgbToHex } from '../src/edit';
+import { importIdml, exportIdml, createSampleIdml } from '../src/indd/idml';
+import { applyIdmlText } from '../src/indd/idmlEdit';
+import { parseGraphicXmlColors, resolveSwatchRef } from '../src/indd/swatches';
+import { decodeIdmlTextContent } from '../src/indd/storyParse';
+import { readPageItemAttribute } from '../src/indd/exportPatch';
+import { leaves } from '../src/core/model';
+import { hexToRgb, rgbToHex } from '../src/operations/edit';
 
 const window = new Window();
 (globalThis as unknown as { DOMParser: typeof DOMParser }).DOMParser =
@@ -62,7 +62,7 @@ async function buildMixedStoryFixture(): Promise<ArrayBuffer> {
   zip.file('Spreads/Spread_s1.xml', spread);
   zip.file('Stories/Story_st1.xml', story);
   zip.file('Resources/Graphic.xml', graphic);
-  const { writeIdmlPackage } = await import('../src/idml/zip');
+  const { writeIdmlPackage } = await import('../src/indd/zip');
   return writeIdmlPackage(zip);
 }
 

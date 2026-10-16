@@ -10,9 +10,9 @@ import { createCanvas, type Canvas } from '@napi-rs/canvas';
 import { initializeCanvas } from 'ag-psd';
 import { PDFDocument, PDFName } from 'pdf-lib';
 import { inflate } from 'pako';
-import { walk, nodeBounds, type Doc, type Node } from '../src/model';
-import { isPointInLayer } from '../src/canvasHitTest';
-import { aiArtFrame } from '../src/aiPdfLib';
+import { walk, nodeBounds, type Doc, type Node } from '../src/core/model';
+import { isPointInLayer } from '../src/canvas/canvasHitTest';
+import { aiArtFrame } from '../src/ai/aiPdfLib';
 
 const hooks = `export async function resolve(specifier, context, next) {
   if (specifier.endsWith('?url')) return { url: 'data:text/javascript,export%20default%20%22%22', shortCircuit: true };
@@ -139,7 +139,7 @@ function maskDifference(a: Uint8Array, b: Uint8Array): number {
 }
 
 async function runTests() {
-  const { importAi, exportAi } = await import('../src/ai');
+  const { importAi, exportAi } = await import('../src/ai/ai');
   const buf = fs.readFileSync('public/sample.ai');
   const sampleAb = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
   const origStream = await contentStream(sampleAb);

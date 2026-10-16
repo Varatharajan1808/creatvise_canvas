@@ -6,17 +6,17 @@ import path from 'node:path';
 import { createCanvas } from '@napi-rs/canvas';
 import { Window } from 'happy-dom';
 import JSZip from 'jszip';
-import { importIdml } from '../src/idml';
-import { parseStoryFromXml } from '../src/idml/storyParse';
-import { parseStylesXmlTextStyles } from '../src/idml/textStyles';
-import { parseGraphicXmlColors } from '../src/idml/swatches';
-import { layoutIdmlTextLines } from '../src/idml/textLayout';
+import { importIdml } from '../src/indd/idml';
+import { parseStoryFromXml } from '../src/indd/storyParse';
+import { parseStylesXmlTextStyles } from '../src/indd/textStyles';
+import { parseGraphicXmlColors } from '../src/indd/swatches';
+import { layoutIdmlTextLines } from '../src/indd/textLayout';
 import {
   rasterizeIdmlTextNode,
   countRasterizedTextLines,
   countVisibleTextPixels,
-} from '../src/idml/rasterText';
-import { leaves } from '../src/model';
+} from '../src/indd/rasterText';
+import { leaves } from '../src/core/model';
 
 const window = new Window();
 (globalThis as unknown as { DOMParser: typeof DOMParser }).DOMParser =
@@ -65,7 +65,7 @@ async function main() {
     log('u251-three-raster-lines', lineRows >= 3, `lines=${lineRows} pixels=${visible}`);
   }
 
-  const sample = await importIdml('sample.idml', await (await import('../src/idml')).createSampleIdml(), 'idml');
+  const sample = await importIdml('sample.idml', await (await import('../src/indd/idml')).createSampleIdml(), 'idml');
   const sampleText = sample.roots.find((n) => n.kind === 'text');
   log('sample-text-unchanged', sampleText?.src?.text?.text?.includes('Creatvise'), sampleText?.src?.text?.text ?? '');
 

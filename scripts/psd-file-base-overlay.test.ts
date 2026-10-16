@@ -6,16 +6,16 @@ import path from 'path';
 import { Window } from 'happy-dom';
 import { createCanvas } from '@napi-rs/canvas';
 import { initializeCanvas } from 'ag-psd';
-import { importPsd, refreshPsdPreviewModeAfterEdit } from '../src/psd';
-import { walk } from '../src/model';
-import { History } from '../src/history';
+import { importPsd, refreshPsdPreviewModeAfterEdit } from '../src/psd/psd';
+import { walk } from '../src/core/model';
+import { History } from '../src/core/history';
 import {
   composeDocPreview,
   getDocPreviewCanvas,
   isLayerPreviewDirty,
   isShowingEmbeddedFileComposite,
   isUsingFileBaseOverlayPreview,
-} from '../src/psdComposite';
+} from '../src/psd/psdComposite';
 
 const fixture =
   process.argv[2] ??

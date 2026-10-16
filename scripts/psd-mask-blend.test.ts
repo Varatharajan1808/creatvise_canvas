@@ -21,11 +21,11 @@ window.document.createElement = ((tag: string, options?: unknown) => {
 }) as typeof window.document.createElement;
 initializeCanvas((w, h) => createCanvas(w, h) as unknown as HTMLCanvasElement);
 
-const { importPsd, exportPsd } = await import('../src/psd');
-const { leaves } = await import('../src/model');
-const { composeDocPreview, psdBlendToCompositeOp } = await import('../src/psdComposite');
-const { blendChannel, blendPixelsInto, isPixelBlendMode } = await import('../src/psdBlend');
-const { History } = await import('../src/history');
+const { importPsd, exportPsd } = await import('../src/psd/psd');
+const { leaves } = await import('../src/core/model');
+const { composeDocPreview, psdBlendToCompositeOp } = await import('../src/psd/psdComposite');
+const { blendChannel, blendPixelsInto, isPixelBlendMode } = await import('../src/psd/psdBlend');
+const { History } = await import('../src/core/history');
 
 const near = (a: number, b: number, tol = 1) => Math.abs(a - b) <= tol;
 

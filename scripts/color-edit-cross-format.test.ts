@@ -12,11 +12,11 @@ const hooks = `export async function resolve(specifier, context, next) {
 register('data:text/javascript,' + encodeURIComponent(hooks));
 import { createCanvas } from '@napi-rs/canvas';
 import { initializeCanvas, readPsd } from 'ag-psd';
-import { importPsd, exportPsd, createSamplePsd } from '../src/psd';
+import { importPsd, exportPsd, createSamplePsd } from '../src/psd/psd';
 import JSZip from 'jszip';
-import { importIdml, exportIdml, createSampleIdml } from '../src/idml';
-import { readPageItemAttribute } from '../src/idml/exportPatch';
-import { parseGraphicXmlColors, resolveSwatchRef } from '../src/idml/swatches';
+import { importIdml, exportIdml, createSampleIdml } from '../src/indd/idml';
+import { readPageItemAttribute } from '../src/indd/exportPatch';
+import { parseGraphicXmlColors, resolveSwatchRef } from '../src/indd/swatches';
 import {
   applyShapeColor,
   applyShapeBorder,
@@ -24,11 +24,11 @@ import {
   getShapeColor,
   getTextInfo,
   shapeColorBlockReason,
-} from '../src/edit';
-import { applyIdmlShapeColor, applyIdmlText } from '../src/idmlEdit';
-import { applyAiVectorShapeImport, readFirstPageContentStreamText, pdfRgbFillToken } from '../src/aiVectorShapes';
-import { leaves } from '../src/model';
-import type { Doc } from '../src/model';
+} from '../src/operations/edit';
+import { applyIdmlShapeColor, applyIdmlText } from '../src/indd/idmlEdit';
+import { applyAiVectorShapeImport, readFirstPageContentStreamText, pdfRgbFillToken } from '../src/ai/aiVectorShapes';
+import { leaves } from '../src/core/model';
+import type { Doc } from '../src/core/model';
 
 const window = new Window();
 (globalThis as unknown as { document: Document }).document = window.document as unknown as Document;
@@ -121,7 +121,7 @@ async function main() {
   log('ai-shape-not-blocked', shapeColorBlockReason(aiShape) === null, 'ok');
   applyShapeColor(aiShape, { r: 10, g: 200, b: 30 });
   applyShapeBorder(aiShape, { enabled: true, width: 3, color: { r: 200, g: 0, b: 100 } });
-  const { exportAi } = await import('../src/ai');
+  const { exportAi } = await import('../src/ai/ai');
   const aiOut = await exportAi(aiDoc);
   const stream = await readFirstPageContentStreamText(aiOut);
   log('ai-export-fill-token', Boolean(stream?.text.includes(pdfRgbFillToken(10, 200, 30))), pdfRgbFillToken(10, 200, 30));

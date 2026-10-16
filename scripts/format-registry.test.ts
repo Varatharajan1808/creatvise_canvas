@@ -8,7 +8,7 @@ import { register } from 'node:module';
 import { Window } from 'happy-dom';
 import { createCanvas } from '@napi-rs/canvas';
 import { initializeCanvas } from 'ag-psd';
-import type { Doc, Node } from '../src/model';
+import type { Doc, Node } from '../src/core/model';
 import type { FormatAdapter } from '../src/formats';
 
 const hooks = [
@@ -109,11 +109,11 @@ async function runTests() {
   const { createFormatRegistry, formatRegistry } = await import('../src/formats');
   const { psdAdapter } = await import('../src/formats/psdAdapter');
   const { aiAdapter } = await import('../src/formats/aiAdapter');
-  const caps = await import('../src/formatCaps');
-  const { importDocument } = await import('../src/formatImport');
-  const { exportDocument, exportEditedDownloadName, exportEditedMimeType } = await import('../src/formatExport');
-  const { importPsd, exportPsd, createSamplePsd } = await import('../src/psd');
-  const { importAi, exportAi } = await import('../src/ai');
+  const caps = await import('../src/formats/formatCaps');
+  const { importDocument } = await import('../src/formats/formatImport');
+  const { exportDocument, exportEditedDownloadName, exportEditedMimeType } = await import('../src/formats/formatExport');
+  const { importPsd, exportPsd, createSamplePsd } = await import('../src/psd/psd');
+  const { importAi, exportAi } = await import('../src/ai/ai');
 
   const reg = createFormatRegistry([psdAdapter, aiAdapter]);
   assert('get-exact', reg.get('psd') === psdAdapter && reg.get('ai') === aiAdapter, 'psd, ai');
@@ -147,7 +147,7 @@ async function runTests() {
   assert('duplicate-extension-throws', dupExt === 'Extension ".psd" is claimed by both "psd" and "ai".', dupExt);
 
   const { inddAdapter } = await import('../src/formats/inddAdapter');
-  const { createSampleIdml } = await import('../src/idml');
+  const { createSampleIdml } = await import('../src/indd/idml');
 
   assert(
     'production-formats',

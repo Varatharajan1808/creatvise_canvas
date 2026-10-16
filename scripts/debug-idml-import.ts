@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { Window } from 'happy-dom';
-import { importIdml } from '../src/idml';
-import { leaves } from '../src/model';
+import { importIdml } from '../src/indd/idml';
+import { leaves } from '../src/core/model';
 
 const window = new Window();
 (globalThis as any).DOMParser = window.DOMParser;

@@ -3,8 +3,8 @@
  * Distinguishes synthetic test PDFs from Illustrator PDF-compatible saves.
  */
 import fs from 'fs';
-import { readFirstPageContentStreamText } from '../src/aiVectorShapes';
-import { parsePdfLiveText } from '../src/aiPdfText';
+import { readFirstPageContentStreamText } from '../src/ai/aiVectorShapes';
+import { parsePdfLiveText } from '../src/ai/aiPdfText';
 
 const CANONICAL_REAL_FIXTURE = 'public/fixtures/ai/illustrator-live-text.ai';
 

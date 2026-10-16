@@ -269,11 +269,11 @@ function mkAllThreePsd(): ArrayBuffer {
 }
 
 async function run() {
-  const { importPsd, exportPsd } = await import('../src/psd');
-  const { composeDocPreview } = await import('../src/psdComposite');
-  const { leaves } = await import('../src/model');
-  const { hasUnsupportedLayerEffects, activeDropShadow, activeOuterGlow, activeStroke } = await import('../src/psdLayerEffects');
-  const { describeUnsupportedLayer } = await import('../src/psdLayerInfo');
+  const { importPsd, exportPsd } = await import('../src/psd/psd');
+  const { composeDocPreview } = await import('../src/psd/psdComposite');
+  const { leaves } = await import('../src/core/model');
+  const { hasUnsupportedLayerEffects, activeDropShadow, activeOuterGlow, activeStroke } = await import('../src/psd/psdLayerEffects');
+  const { describeUnsupportedLayer } = await import('../src/psd/psdLayerInfo');
 
   // --- 1. Drop shadow tests ---
   {

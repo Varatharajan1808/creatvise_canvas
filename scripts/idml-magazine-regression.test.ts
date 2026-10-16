@@ -4,9 +4,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Window } from 'happy-dom';
-import { importIdml } from '../src/idml';
-import { cmykToRgbHex } from '../src/idml/swatches';
-import { leaves } from '../src/model';
+import { importIdml } from '../src/indd/idml';
+import { cmykToRgbHex } from '../src/indd/swatches';
+import { leaves } from '../src/core/model';
 
 const FALLBACK_BLUE = '#4f6bff';
 const idmlPath = path.join('artifacts', 'fixtures', 'free_317277841', 'free_317277841.idml');

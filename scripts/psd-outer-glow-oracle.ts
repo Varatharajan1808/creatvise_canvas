@@ -23,9 +23,9 @@ window.document.createElement = ((tag: string, options?: unknown) => {
 }) as typeof window.document.createElement;
 initializeCanvas((w, h) => createCanvas(w, h) as unknown as HTMLCanvasElement);
 
-const { importPsd } = await import('../src/psd');
-const { composeDocPreview, docUsesFullDocPreview } = await import('../src/psdComposite');
-const { leaves } = await import('../src/model');
+const { importPsd } = await import('../src/psd/psd');
+const { composeDocPreview, docUsesFullDocPreview } = await import('../src/psd/psdComposite');
+const { leaves } = await import('../src/core/model');
 
 const doc = importPsd('outer-glow.psd', buildOuterGlowFixturePsd());
 const leaf = leaves(doc)[0]!;

@@ -21,11 +21,11 @@ window.document.createElement = ((tag: string, options?: unknown) => {
 }) as typeof window.document.createElement;
 initializeCanvas((w, h) => createCanvas(w, h) as unknown as HTMLCanvasElement);
 
-const { importPsd, exportPsd, refreshPsdPreviewModeAfterEdit } = await import('../src/psd');
-const { leaves } = await import('../src/model');
-const C = await import('../src/psdComposite');
-const R = await import('../src/psdCompositeRule');
-const { History } = await import('../src/history');
+const { importPsd, exportPsd, refreshPsdPreviewModeAfterEdit } = await import('../src/psd/psd');
+const { leaves } = await import('../src/core/model');
+const C = await import('../src/psd/psdComposite');
+const R = await import('../src/psd/psdCompositeRule');
+const { History } = await import('../src/core/history');
 type Doc = ReturnType<typeof importPsd>;
 
 const W = 120, H = 90;

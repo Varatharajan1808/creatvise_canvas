@@ -14,8 +14,8 @@ import { createCanvas } from '@napi-rs/canvas';
 import { initializeCanvas } from 'ag-psd';
 import { PDFDocument, PDFName } from 'pdf-lib';
 import { inflate } from 'pako';
-import type { Doc, Node } from '../src/model';
-import { initAiLayerMeta, resolveAiMcIndex } from '../src/aiLayerMeta';
+import type { Doc, Node } from '../src/core/model';
+import { initAiLayerMeta, resolveAiMcIndex } from '../src/ai/aiLayerMeta';
 import {
   applyAiSiblingReorder,
   canReorderAiDocument,
@@ -24,8 +24,8 @@ import {
   docHasAiStackReordered,
   aiReorderDocumentBlockedReason,
   mcPaintOrderFromDoc,
-} from '../src/aiReorder';
-import { findLayerBlocks, readContentStreamMcStats, readOcgNamesAndRefsFromPdf, reorderMarkedContentBlocksForPaintOrder } from '../src/aiPdfLib';
+} from '../src/ai/aiReorder';
+import { findLayerBlocks, readContentStreamMcStats, readOcgNamesAndRefsFromPdf, reorderMarkedContentBlocksForPaintOrder } from '../src/ai/aiPdfLib';
 
 const results: { name: string; ok: boolean; detail: string }[] = [];
 const log = (name: string, ok: boolean, detail: string) => {
@@ -162,13 +162,13 @@ async function runTests() {
     return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
   };
 
-  const { importAi, exportAi } = await import('../src/ai');
+  const { importAi, exportAi } = await import('../src/ai/ai');
   const {
     canReorderLayer,
     canReorderLayerStackStep,
     reorderLayerBlockedReason,
-  } = await import('../src/formatCaps');
-  const { History } = await import('../src/history');
+  } = await import('../src/formats/formatCaps');
+  const { History } = await import('../src/core/history');
 
   // --- imported single-layer sample: blocked ---
   {

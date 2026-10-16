@@ -12,8 +12,8 @@ const window = new Window();
   window.DOMParser as unknown as typeof DOMParser;
 (globalThis as unknown as { document: Document }).document = window.document as unknown as Document;
 
-import { importIdml, exportIdml } from '../src/idml';
-import { IDML_MIMETYPE } from '../src/idml/zip';
+import { importIdml, exportIdml } from '../src/indd/idml';
+import { IDML_MIMETYPE } from '../src/indd/zip';
 
 const FIXTURE = path.join(process.cwd(), 'artifacts', 'fixtures', 'sample-creatvise.idml');
 

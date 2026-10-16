@@ -7,7 +7,7 @@ import { register } from 'node:module';
 import { Window } from 'happy-dom';
 import { createCanvas } from '@napi-rs/canvas';
 import { initializeCanvas } from 'ag-psd';
-import { walk, type Doc, type Node } from '../src/model';
+import { walk, type Doc, type Node } from '../src/core/model';
 
 const hooks = `export async function resolve(specifier, context, next) {
   if (specifier.endsWith('?url')) return { url: 'data:text/javascript,export%20default%20%22%22', shortCircuit: true };
@@ -80,7 +80,7 @@ async function runTests() {
     exportAi,
     parseExtGStateOpacity,
     verifyExportedExtGStateOpacity,
-  } = await import('../src/ai');
+  } = await import('../src/ai/ai');
 
   const sampleBuf = fs.readFileSync('public/sample.ai');
   const sampleAb = sampleBuf.buffer.slice(sampleBuf.byteOffset, sampleBuf.byteOffset + sampleBuf.byteLength);

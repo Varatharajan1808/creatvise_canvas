@@ -11,12 +11,12 @@ import vm from 'vm';
 import { Window } from 'happy-dom';
 import { createCanvas } from '@napi-rs/canvas';
 import { initializeCanvas } from 'ag-psd';
-import { importPsd, createSamplePsd, refreshPsdPreviewModeAfterEdit } from '../src/psd';
-import { History, type Command } from '../src/history';
-import { leaves, walk, type Doc, type Node } from '../src/model';
-import { applyText, captureState, restoreState, type LayerState } from '../src/edit';
-import { getDocPreviewCanvas, markNodePreviewContentChanged } from '../src/psdComposite';
-import { canEditPsdLayerPosition, leavesForPositionEdit } from '../src/psdLayerInfo';
+import { importPsd, createSamplePsd, refreshPsdPreviewModeAfterEdit } from '../src/psd/psd';
+import { History, type Command } from '../src/core/history';
+import { leaves, walk, type Doc, type Node } from '../src/core/model';
+import { applyText, captureState, restoreState, type LayerState } from '../src/operations/edit';
+import { getDocPreviewCanvas, markNodePreviewContentChanged } from '../src/psd/psdComposite';
+import { canEditPsdLayerPosition, leavesForPositionEdit } from '../src/psd/psdLayerInfo';
 
 const results: { name: string; ok: boolean; detail: string }[] = [];
 const log = (name: string, ok: boolean, detail: string) => {

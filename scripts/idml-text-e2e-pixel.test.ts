@@ -4,9 +4,9 @@
 import fs from 'node:fs';
 import { createCanvas } from '@napi-rs/canvas';
 import { Window } from 'happy-dom';
-import { importIdml } from '../src/idml';
-import { leaves } from '../src/model';
-import { countTextGlyphPixels, rasterizeAllIdmlTextNodes } from '../src/idml/rasterText';
+import { importIdml } from '../src/indd/idml';
+import { leaves } from '../src/core/model';
+import { countTextGlyphPixels, rasterizeAllIdmlTextNodes } from '../src/indd/rasterText';
 
 const window = new Window();
 const doc = window.document;

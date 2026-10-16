@@ -4,7 +4,7 @@
 import { Window } from 'happy-dom';
 import { createCanvas } from '@napi-rs/canvas';
 import { initializeCanvas, readPsd, writePsd, type Layer, type Psd } from 'ag-psd';
-import type { Doc, Node } from '../src/model';
+import type { Doc, Node } from '../src/core/model';
 
 const window = new Window();
 (globalThis as unknown as { window: Window; document: Document }).window = window;
@@ -18,8 +18,8 @@ window.document.createElement = ((tag: string, options?: unknown) => {
 
 initializeCanvas((w, h) => createCanvas(w, h) as unknown as HTMLCanvasElement);
 
-const { importPsd, exportPsd, createSamplePsd } = await import('../src/psd');
-const { leaves } = await import('../src/model');
+const { importPsd, exportPsd, createSamplePsd } = await import('../src/psd/psd');
+const { leaves } = await import('../src/core/model');
 
 function flatLayers(psd: Psd): Layer[] {
   const out: Layer[] = [];

@@ -1,7 +1,7 @@
 /**
  * AI Group UI & Operations tests: validation, planning, execution, undo/redo, action states.
  */
-import type { Doc, Node } from '../src/model';
+import type { Doc, Node } from '../src/core/model';
 import type { Layer } from 'ag-psd';
 import {
   validateAiGroupCreation,
@@ -15,8 +15,8 @@ import {
   aiGroupActionState,
   aiUngroupActionState,
   createAiGroupNode,
-} from '../src/aiGroupOps';
-import { singleSelection } from '../src/selection';
+} from '../src/ai/aiGroupOps';
+import { singleSelection } from '../src/canvas/selection';
 
 const results: { name: string; ok: boolean; detail: string }[] = [];
 const log = (name: string, ok: boolean, detail: string) => {

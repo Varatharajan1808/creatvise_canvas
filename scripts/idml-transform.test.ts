@@ -12,9 +12,9 @@ import {
   spreadContainerElement,
   elementsLocalCI,
   contentSpreadPathsFromDesignmap,
-} from '../src/idml';
-import { parseMatrix6 } from '../src/idml/matrix';
-import { leaves } from '../src/model';
+} from '../src/indd/idml';
+import { parseMatrix6 } from '../src/indd/matrix';
+import { leaves } from '../src/core/model';
 
 const window = new Window();
 (globalThis as unknown as { DOMParser: typeof DOMParser }).DOMParser =
@@ -66,7 +66,7 @@ async function main() {
   </Group>
 </Spread>`;
   const { default: JSZip } = await import('jszip');
-  const { writeIdmlPackage } = await import('../src/idml/zip');
+  const { writeIdmlPackage } = await import('../src/indd/zip');
   const zip = new JSZip();
   zip.file('mimetype', 'application/vnd.adobe.indesign-idml-package', { compression: 'STORE' });
   zip.file('designmap.xml', '<?xml version="1.0"?><Document><idPkg:Spread src="Spreads/Spread_s1.xml"/></Document>');

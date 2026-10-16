@@ -4,8 +4,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Window } from 'happy-dom';
-import { importIdml } from '../src/idml';
-import { leaves } from '../src/model';
+import { importIdml } from '../src/indd/idml';
+import { leaves } from '../src/core/model';
 
 const window = new Window();
 (globalThis as unknown as { DOMParser: typeof DOMParser }).DOMParser =
@@ -20,7 +20,7 @@ const log = (name: string, ok: boolean, detail: string) => {
 };
 
 async function main() {
-  const sample = await importIdml('sample.idml', await (await import('../src/idml')).createSampleIdml(), 'idml');
+  const sample = await importIdml('sample.idml', await (await import('../src/indd/idml')).createSampleIdml(), 'idml');
   log('sample-single-page', (sample.idml?.pages?.length ?? 0) === 1, String(sample.idml?.pages?.length));
 
   const idmlPath = path.join('artifacts', 'fixtures', 'free_317277841', 'free_317277841.idml');

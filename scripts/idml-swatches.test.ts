@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { applyFillTint, cmykToRgbHex, parseGraphicXmlColors, resolveSwatchRef } from '../src/idml/swatches';
-import { importIdml } from '../src/idml';
-import { leaves } from '../src/model';
-import { parseStylesXmlObjectFills, resolveItemFillHex } from '../src/idml/objectStyles';
+import { applyFillTint, cmykToRgbHex, parseGraphicXmlColors, resolveSwatchRef } from '../src/indd/swatches';
+import { importIdml } from '../src/indd/idml';
+import { leaves } from '../src/core/model';
+import { parseStylesXmlObjectFills, resolveItemFillHex } from '../src/indd/objectStyles';
 import { Window } from 'happy-dom';
 
 const window = new Window();

@@ -68,10 +68,10 @@ const resetAlloc = () => {
 };
 const allocText = () => `canvases=${alloc.canvases} allocated=${alloc.megapixels.toFixed(1)}MP (${((alloc.megapixels * 4e6) / 1e6).toFixed(0)}MB RGBA)`;
 
-const { importPsd } = await import('../src/psd');
-const { leaves } = await import('../src/model');
-const C = await import('../src/psdComposite');
-const R = await import('../src/psdCompositeRule');
+const { importPsd } = await import('../src/psd/psd');
+const { leaves } = await import('../src/core/model');
+const C = await import('../src/psd/psdComposite');
+const R = await import('../src/psd/psdCompositeRule');
 type Node = ReturnType<typeof leaves>[number];
 
 let peakRss = 0;

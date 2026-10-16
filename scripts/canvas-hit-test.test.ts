@@ -7,11 +7,11 @@ import { Window } from 'happy-dom';
 import { createCanvas } from '@napi-rs/canvas';
 import { initializeCanvas } from 'ag-psd';
 import type { Layer } from 'ag-psd';
-import { hitTestCanvasLayer, isCanvasPickTarget } from '../src/canvasHitTest';
-import { importPsd } from '../src/psd';
-import type { Doc, Node } from '../src/model';
-import { canEditPsdLayerPosition } from '../src/psdLayerInfo';
-import { leaves } from '../src/model';
+import { hitTestCanvasLayer, isCanvasPickTarget } from '../src/canvas/canvasHitTest';
+import { importPsd } from '../src/psd/psd';
+import type { Doc, Node } from '../src/core/model';
+import { canEditPsdLayerPosition } from '../src/psd/psdLayerInfo';
+import { leaves } from '../src/core/model';
 
 const results: { name: string; ok: boolean; detail: string }[] = [];
 const log = (name: string, ok: boolean, detail: string) => {

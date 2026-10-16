@@ -4,21 +4,21 @@
 import { Window } from 'happy-dom';
 import { createCanvas } from '@napi-rs/canvas';
 import { initializeCanvas, writePsd, type Layer, type Psd } from 'ag-psd';
-import { importPsd } from '../src/psd';
-import { History } from '../src/history';
-import { walk, type Doc } from '../src/model';
+import { importPsd } from '../src/psd/psd';
+import { History } from '../src/core/history';
+import { walk, type Doc } from '../src/core/model';
 import {
   groupCreateCommand,
   groupUngroupCommand,
   planGroupCreation,
   planUngroup,
   executeGroupCreation,
-} from '../src/groupOps';
+} from '../src/operations/groupOps';
 import {
   applyCreateGroup,
   assertModelSourceTreeInSync,
   sourceRemove,
-} from '../src/sourceTree';
+} from '../src/core/sourceTree';
 
 const results: { name: string; ok: boolean; detail: string }[] = [];
 const log = (name: string, ok: boolean, detail: string) => {

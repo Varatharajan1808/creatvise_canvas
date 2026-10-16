@@ -1,17 +1,17 @@
 import './style.css';
 import { escapeHtml } from './utils';
-import { Viewport } from './viewport';
-import { fpsTracker } from './fps';
-import { History, type Command } from './history';
-import { type Doc, type Node, walk, isLocked, nodeBounds, docOf } from './model';
+import { Viewport } from './canvas/viewport';
+import { fpsTracker } from './canvas/fps';
+import { History, type Command } from './core/history';
+import { type Doc, type Node, walk, isLocked, nodeBounds, docOf } from './core/model';
 import {
   fetchPublicPsd,
   importPsd,
   markNodePreviewContentChanged,
   refreshPsdPreviewModeAfterEdit,
-} from './psd';
-import { invalidatePsdPreviewCache } from './psdComposite';
-import { hitTestCanvasClickTarget, hitTestCanvasLayer, isPointInLayer } from './canvasHitTest';
+} from './psd/psd';
+import { invalidatePsdPreviewCache } from './psd/psdComposite';
+import { hitTestCanvasClickTarget, hitTestCanvasLayer, isPointInLayer } from './canvas/canvasHitTest';
 import {
   addToSelection,
   emptySelection,
@@ -34,14 +34,14 @@ import {
   snapshotPositions,
   toggleNodeInSelection,
   type Selection,
-} from './selection';
+} from './canvas/selection';
 import {
   canEditPsdLayerPosition,
   leavesForPositionEdit,
-} from './psdLayerInfo';
-import { fetchPublicAi } from './ai';
-import { applyAiDuplicateMetadata, canDuplicateAiLayer } from './aiLayerMeta';
-import { applyAiPlacedImagePreviewReplace } from './aiImageEdit';
+} from './psd/psdLayerInfo';
+import { fetchPublicAi } from './ai/ai';
+import { applyAiDuplicateMetadata, canDuplicateAiLayer } from './ai/aiLayerMeta';
+import { applyAiPlacedImagePreviewReplace } from './ai/aiImageEdit';
 import {
   canDeleteLayer,
   canDuplicateLayer,
@@ -60,16 +60,16 @@ import {
   importErrorModalTitle,
   RESIZE_ROTATE_BLOCKED_MESSAGE,
   unsupportedDocSubtitle,
-} from './formatCaps';
-import { importDocument } from './formatImport';
-import { exportDocument, exportEditedDownloadName, exportEditedMimeType } from './formatExport';
-import { BackendError, fetchBackendHealth } from './backend';
-import { createSampleIdml, exportIdml } from './idml';
-import { rasterizeAllIdmlTextNodes } from './idml/rasterText';
-import { activeInddDoc, downloadBytes, downloadJson } from './inddImportReport';
-import { healthStateFromResponse, indesignChipLabel, indesignChipTitle } from './indesignStatus';
-import { canEditIdmlPosition, canTransformIdml, leavesForIdmlPositionEdit, rasterizeIdmlTextNode } from './idmlEdit';
-import { rotationPointerAngleDeg } from './idmlRotatePointer';
+} from './formats/formatCaps';
+import { importDocument } from './formats/formatImport';
+import { exportDocument, exportEditedDownloadName, exportEditedMimeType } from './formats/formatExport';
+import { BackendError, fetchBackendHealth } from './formats/backend';
+import { exportIdml } from './indd/idml';
+import { rasterizeAllIdmlTextNodes } from './indd/rasterText';
+import { activeInddDoc, downloadBytes, downloadJson } from './indd/inddImportReport';
+import { healthStateFromResponse, indesignChipLabel, indesignChipTitle } from './indd/indesignStatus';
+import { canEditIdmlPosition, canTransformIdml, leavesForIdmlPositionEdit, rasterizeIdmlTextNode } from './indd/idmlEdit';
+import { rotationPointerAngleDeg } from './indd/idmlRotatePointer';
 import {
   sourceIndex,
   sourceInsert,
@@ -80,14 +80,14 @@ import {
   applySiblingReorder,
   canReorderSiblingIndex,
   clippedLayersWithBase,
-} from './sourceTree';
-import { applyAiSiblingReorder } from './aiReorder';
+} from './core/sourceTree';
+import { applyAiSiblingReorder } from './ai/aiReorder';
 import {
   aiGroupCreateCommand,
   aiUngroupCommand,
   planAiGroupCreation,
   planAiUngroup,
-} from './aiGroupOps';
+} from './ai/aiGroupOps';
 import {
   groupActionState,
   groupCreateCommand,
@@ -97,14 +97,14 @@ import {
   ungroupActionState,
   validateGroupCreation,
   validateUngroup,
-} from './groupOps';
-import { closeDocCommand, openDocsCommand } from './docHistory';
-import { renderLayers, renderProps, type PanelHandlers } from './panel';
-import { saveWorkspace, loadWorkspace, clearAll } from './storage';
-import { serializeDoc, applySavedDoc, type SavedWorkspace } from './workspace';
-import { applyTextOrAiLiveText, applyShapeColor, applyShapeBorder, applyBrightnessContrast, captureState, restoreState, getTextInfo, shapeColorBlockReason, shapeBorderBlockReason, hexToRgb, type LayerState } from './edit';
-import { canEditAiLiveTextOnNode } from './aiTextEdit';
-import { toast, alertModal, confirmModal, promptModal, infoListModal, folderImportModal } from './popup';
+} from './operations/groupOps';
+import { closeDocCommand, openDocsCommand } from './core/docHistory';
+import { renderLayers, renderProps, type PanelHandlers } from './ui/panel';
+import { saveWorkspace, loadWorkspace, clearAll } from './core/storage';
+import { serializeDoc, applySavedDoc, type SavedWorkspace } from './core/workspace';
+import { applyTextOrAiLiveText, applyShapeColor, applyShapeBorder, applyBrightnessContrast, captureState, restoreState, getTextInfo, shapeColorBlockReason, shapeBorderBlockReason, hexToRgb, type LayerState } from './operations/edit';
+import { canEditAiLiveTextOnNode } from './ai/aiTextEdit';
+import { toast, alertModal, confirmModal, promptModal, infoListModal, folderImportModal } from './ui/popup';
 import {
   collectFilesFromDirectoryPicker,
   discoverFromFileList,
@@ -114,9 +114,9 @@ import {
   type FolderDiscoveredFile,
   type FolderCollectionMeta,
   type FolderImportSource,
-} from './folderImport';
+} from './formats/folderImport';
 import type { Layer } from 'ag-psd';
-import { initTooltips } from './tooltip';
+import { initTooltips } from './ui/tooltip';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -699,7 +699,7 @@ async function replaceImage(n: Node, file: File) {
     const beforePlaced = n.idml?.placedImage ? structuredClone(n.idml.placedImage) : undefined;
     try {
       const c = await loadImageFileToCanvas(file);
-      const { applyIdmlPlacedImageReplace } = await import('./idml/placedImage');
+      const { applyIdmlPlacedImageReplace } = await import('./indd/placedImage');
       await applyIdmlPlacedImageReplace(n, c, { sourceMime: file.type || undefined });
       markNodePreviewContentChanged(n);
       hist.exec({
@@ -853,11 +853,11 @@ function previewPositionScene(n: Node) {
   }
   scheduleSceneSync();
 }
- 
+
 function xformEqual(a: Xform, b: Xform) {
   return a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h && a.rotation === b.rotation;
 }
- 
+
 function commitXfPending() {
   if (!xfPending) return;
   const { node, before } = xfPending;
@@ -866,7 +866,7 @@ function commitXfPending() {
   if (xformEqual(before, after)) return;
   hist.exec(transformCommand(node, before, after), true);
 }
- 
+
 /** Live width / height / rotation while typing; one undo step on change or blur. */
 function editTransform(n: Node, t: { w?: number; h?: number; rotation?: number }, commit: boolean) {
   if (selection.nodes.length > 1) {
@@ -1005,7 +1005,7 @@ const handlers: PanelHandlers = {
     editContent(n, () => applyBrightnessContrast(n, patch), commit);
   },
   replaceImage,
- setTransform: (n, t, commit = true) => editTransform(n, t, commit),
+  setTransform: (n, t, commit = true) => editTransform(n, t, commit),
   editPosition,
   showUnsupportedDoc: (doc) => {
     const unsupportedLayers = [...walk(doc.roots)].filter((n) => n.unsupported.length);
@@ -1305,7 +1305,7 @@ function showHoverHintInStatus(): boolean {
 // ---------- pointer interaction ----------
 const stage = $('stage');
 const glEl = $('gl');
-type Mode = 'none' | 'pan' | 'move' | 'resize' | 'rotate'|'marquee';
+type Mode = 'none' | 'pan' | 'move' | 'resize' | 'rotate' | 'marquee';
 let mode: Mode = 'none';
 let lastX = 0, lastY = 0;
 let lastLocalSx = 0;
@@ -1317,7 +1317,7 @@ let marqueeEnd: { sx: number; sy: number } | null = null;
 let marqueeAdditive = false;
 /** Click-to-deselect on empty canvas only applies when the marquee did not start over layer content. */
 let marqueeStartedOnEmpty = false;
- 
+
 function beginMarquee(sx: number, sy: number, additive: boolean, startedOnEmpty: boolean) {
   mode = 'marquee';
   marqueeStart = { sx, sy };
@@ -1452,7 +1452,7 @@ stage.addEventListener('pointerdown', (e) => {
     stage.style.cursor = cursorFor(hh);
     return;
   }
-    const modSelect = e.ctrlKey || e.metaKey;
+  const modSelect = e.ctrlKey || e.metaKey;
   if (modSelect) {
     e.preventDefault();
     beginMarquee(sx, sy, e.shiftKey, !hitTest(sx, sy, false));
@@ -1716,7 +1716,7 @@ async function openFiles(files: FileList | File[]) {
       added.push(addDoc(await importDocument(f.name, await f.arrayBuffer(), format)));
     } catch (err) {
       alertModal({
-       title: importErrorModalTitle(format),
+        title: importErrorModalTitle(format),
         message: `Could not import "${f.name}": ${(err as Error).message}`,
         type: 'error',
       });
@@ -1834,10 +1834,27 @@ if (btnSampleIndd) {
     void (async () => {
       const btn = $('btn-sample-indd') as HTMLButtonElement | null;
       if (btn) btn.disabled = true;
-      toast('Loading sample InDesign IDML...', 'info');
+      toast('Loading sample free_391311709.indd...', 'info');
       try {
-        const bytes = await createSampleIdml();
-        recordOpened([addDoc(await importDocument('sample.idml', bytes, 'indd'))]);
+        const res = await fetch('/free_391311709.indd');
+        if (!res.ok) throw new Error(`Could not load /free_391311709.indd (${res.status}).`);
+        const inddBytes = await res.arrayBuffer();
+
+        let doc: Doc;
+        try {
+          doc = await importDocument('free_391311709.indd', inddBytes, 'indd');
+        } catch (convErr) {
+          console.warn('Native InDesign bridge conversion failed, falling back to pre-converted IDML package:', convErr);
+          const fallbackRes = await fetch('/free_391311709.idml');
+          if (fallbackRes.ok) {
+            const idmlBytes = await fallbackRes.arrayBuffer();
+            doc = await importDocument('free_391311709.indd', idmlBytes, 'indd');
+            doc.uploadedBytes = inddBytes;
+          } else {
+            throw convErr;
+          }
+        }
+        recordOpened([addDoc(doc)]);
       } catch (err) {
         alertModal({
           title: 'Sample INDD Error',

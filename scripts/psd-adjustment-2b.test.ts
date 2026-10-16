@@ -33,26 +33,26 @@ window.document.createElement = ((tag: string, options?: unknown) => {
 }) as typeof window.document.createElement;
 initializeCanvas((w, h) => createCanvas(w, h) as unknown as HTMLCanvasElement);
 
-const { importPsd, exportPsd } = await import('../src/psd');
-const { leaves, walk } = await import('../src/model');
-const { composeDocPreview, getDocPreviewCanvas, clipBaseOf } = await import('../src/psdComposite');
+const { importPsd, exportPsd } = await import('../src/psd/psd');
+const { leaves, walk } = await import('../src/core/model');
+const { composeDocPreview, getDocPreviewCanvas, clipBaseOf } = await import('../src/psd/psdComposite');
 const {
   evaluateVibrancePixel,
   prepareVibranceParams,
-} = await import('../src/psdAdjustmentVibrance');
+} = await import('../src/psd/psdAdjustmentVibrance');
 const {
   labToRgb,
   extractFilterColorRgb,
   evaluatePhotoFilterPixel,
   preparePhotoFilterParams,
-} = await import('../src/psdAdjustmentPhotoFilter');
+} = await import('../src/psd/psdAdjustmentPhotoFilter');
 const {
   parseCubeLut,
   parse3dlLut,
   sample3dLut,
   resolveColorLookupLut,
-} = await import('../src/psdAdjustmentColorLookup');
-const { History } = await import('../src/history');
+} = await import('../src/psd/psdAdjustmentColorLookup');
+const { History } = await import('../src/core/history');
 
 type Doc = ReturnType<typeof importPsd>;
 

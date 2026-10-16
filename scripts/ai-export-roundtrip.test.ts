@@ -1,6 +1,6 @@
 import fs from 'fs';
-import { exportAiWithPdfLib } from '../src/aiPdfLib';
-import type { Doc, Node } from '../src/model';
+import { exportAiWithPdfLib } from '../src/ai/aiPdfLib';
+import type { Doc, Node } from '../src/core/model';
 
 const results: { name: string; ok: boolean; detail: string }[] = [];
 const log = (name: string, ok: boolean, detail: string) => {

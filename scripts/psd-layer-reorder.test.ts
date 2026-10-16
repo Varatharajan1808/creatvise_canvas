@@ -6,7 +6,7 @@ import { createCanvas } from '@napi-rs/canvas';
 import fs from 'fs';
 import path from 'path';
 import { initializeCanvas, readPsd, writePsd, type Layer, type Psd } from 'ag-psd';
-import type { Command } from '../src/history';
+import type { Command } from '../src/core/history';
 
 const results: { name: string; ok: boolean; detail: string }[] = [];
 const log = (name: string, ok: boolean, detail: string) => {
@@ -23,17 +23,17 @@ window.document.createElement = ((tag: string, options?: unknown) => {
 }) as typeof window.document.createElement;
 initializeCanvas((w, h) => createCanvas(w, h) as unknown as HTMLCanvasElement);
 
-const { importPsd, exportPsd, refreshPsdPreviewModeAfterEdit } = await import('../src/psd');
-const { History } = await import('../src/history');
+const { importPsd, exportPsd, refreshPsdPreviewModeAfterEdit } = await import('../src/psd/psd');
+const { History } = await import('../src/core/history');
 const {
   applySiblingReorder,
   canReorderSiblingIndex,
   clipBaseInSiblingOrder,
   clippingSiblingOrderValid,
   nodeSiblings,
-} = await import('../src/sourceTree');
-const { composeDocPreview } = await import('../src/psdComposite');
-const { canReorderLayer } = await import('../src/formatCaps');
+} = await import('../src/core/sourceTree');
+const { composeDocPreview } = await import('../src/psd/psdComposite');
+const { canReorderLayer } = await import('../src/formats/formatCaps');
 type Doc = ReturnType<typeof importPsd>;
 
 const W = 80;

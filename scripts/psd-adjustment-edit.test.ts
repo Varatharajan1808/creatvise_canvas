@@ -32,16 +32,16 @@ window.document.createElement = ((tag: string, options?: unknown) => {
 }) as typeof window.document.createElement;
 initializeCanvas((w, h) => createCanvas(w, h) as unknown as HTMLCanvasElement);
 
-const { importPsd, exportPsd, refreshPsdPreviewModeAfterEdit } = await import('../src/psd');
-const { leaves, walk } = await import('../src/model');
-const { composeDocPreview, markNodePreviewContentChanged, reconcilePsdPreviewMode } = await import('../src/psdComposite');
+const { importPsd, exportPsd, refreshPsdPreviewModeAfterEdit } = await import('../src/psd/psd');
+const { leaves, walk } = await import('../src/core/model');
+const { composeDocPreview, markNodePreviewContentChanged, reconcilePsdPreviewMode } = await import('../src/psd/psdComposite');
 const {
   getBrightnessContrastInfo,
   applyBrightnessContrast,
   captureState,
   restoreState,
-} = await import('../src/edit');
-const { History } = await import('../src/history');
+} = await import('../src/operations/edit');
+const { History } = await import('../src/core/history');
 
 const px = (c: HTMLCanvasElement, x: number, y: number): [number, number, number, number] => {
   const d = c.getContext('2d')!.getImageData(x, y, 1, 1).data;
