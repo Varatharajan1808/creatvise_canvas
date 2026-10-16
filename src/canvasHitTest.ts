@@ -16,6 +16,11 @@ export function readCanvasAlpha(canvas: HTMLCanvasElement, x: number, y: number)
 
 const ALPHA_HIT = 8;
 
+/** IDML text previews are mostly transparent; hits use the frame box (matches selection outline). */
+export function idmlTextUsesBoundsHitTest(n: Node): boolean {
+  return Boolean(n.idml && n.kind === 'text');
+}
+
 export function isCanvasPickTarget(d: Doc, n: Node): boolean {
   if (d.format === 'psd') return isPsdCanvasPickTarget(n, d);
   return !!(n.canvas && n.w > 0 && n.h > 0);
@@ -37,6 +42,7 @@ export function isPointInLayer(n: Node, px: number, py: number): boolean {
   const lx = dx * Math.cos(th) + dy * Math.sin(th) + n.w / 2;
   const ly = -dx * Math.sin(th) + dy * Math.cos(th) + n.h / 2;
   if (lx < 0 || ly < 0 || lx >= n.w || ly >= n.h) return false;
+  if (idmlTextUsesBoundsHitTest(n)) return true;
   if (!n.canvas) return true;
   return readCanvasAlpha(n.canvas, (lx * n.canvas.width) / n.w, (ly * n.canvas.height) / n.h) > ALPHA_HIT;
 }
@@ -77,7 +83,7 @@ export function isPointInGroupBounds(g: Node, px: number, py: number): boolean {
   return px >= b.x && px < b.x + b.w && py >= b.y && py < b.y + b.h;
 }
 
-function isPsdGroupCanvasSelectable(d: Doc, g: Node): boolean {
+export function isPsdGroupCanvasSelectable(d: Doc, g: Node): boolean {
   if (d.format !== 'psd' || g.kind !== 'group') return false;
   if (!effVisible(g) || isLocked(g)) return false;
   if (leavesForPositionEdit(g).length === 0) return false;

@@ -1,6 +1,7 @@
 import * as THREE from 'three/webgpu';
 import { getPsdLivePreview, type PsdLivePreview } from './psdComposite';
 import { type Doc, leaves, effVisible, effOpacity } from './model';
+import { meshRotationZDegrees } from './idmlVisualRotation';
 
 /**
  * three.js always sends `swizzle: 'rgba'` (the identity) when it makes a texture view. Some Chrome/Edge versions
@@ -19,6 +20,85 @@ function patchTextureViewSwizzle() {
     return orig.call(this, desc);
   };
   (proto as { __swizzlePatched?: boolean }).__swizzlePatched = true;
+}
+
+/** WebGPU `copyExternalImageToTexture` from sparse transparent canvases can drop alpha; upload text via ImageData. */
+function useInddTextDataTexture(doc: Doc, n: { kind: string }): boolean {
+  return doc.format === 'indd' && n.kind === 'text';
+}
+
+function configureInddTextTexture(tex: THREE.Texture): void {
+  tex.colorSpace = THREE.SRGBColorSpace;
+  // ImageData row 0 is top; match HTMLCanvasElement / CanvasTexture orientation on the GPU plane.
+  tex.flipY = true;
+  tex.generateMipmaps = false;
+  // Nearest keeps 1:1 texel mapping to doc units (LinearFilter blurs upscaled IDML text).
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.NearestFilter;
+  tex.needsUpdate = true;
+}
+
+function createInddTextDataTexture(canvas: HTMLCanvasElement): THREE.DataTexture | null {
+  const ctx = canvas.getContext('2d');
+  if (!ctx || canvas.width <= 0 || canvas.height <= 0) return null;
+  const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const tex = new THREE.DataTexture(new Uint8Array(img.data), canvas.width, canvas.height, THREE.RGBAFormat);
+  configureInddTextTexture(tex);
+  return tex;
+}
+
+function refreshInddTextDataTexture(mat: THREE.MeshBasicMaterial, canvas: HTMLCanvasElement): void {
+  const ctx = canvas.getContext('2d');
+  if (!ctx || canvas.width <= 0 || canvas.height <= 0) return;
+  const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const cur = mat.map;
+  if (
+    cur instanceof THREE.DataTexture &&
+    cur.image.width === canvas.width &&
+    cur.image.height === canvas.height &&
+    cur.image.data
+  ) {
+    cur.image.data.set(img.data);
+    cur.needsUpdate = true;
+    return;
+  }
+  mat.map?.dispose();
+  const tex = new THREE.DataTexture(new Uint8Array(img.data), canvas.width, canvas.height, THREE.RGBAFormat);
+  configureInddTextTexture(tex);
+  mat.map = tex;
+  mat.needsUpdate = true;
+}
+
+function createLeafLayerTexture(doc: Doc, n: { kind: string }, canvas: HTMLCanvasElement): THREE.Texture {
+  if (useInddTextDataTexture(doc, n)) {
+    const dt = createInddTextDataTexture(canvas);
+    if (dt) return dt;
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  if (doc.format === 'indd') {
+    tex.premultiplyAlpha = false;
+    tex.needsUpdate = true;
+  }
+  return tex;
+}
+
+function syncLeafLayerTexture(doc: Doc, n: { kind: string }, mat: THREE.MeshBasicMaterial, canvas: HTMLCanvasElement): void {
+  if (useInddTextDataTexture(doc, n)) {
+    refreshInddTextDataTexture(mat, canvas);
+    return;
+  }
+  if (mat.map?.image !== canvas) {
+    mat.map?.dispose();
+    mat.map = createLeafLayerTexture(doc, n, canvas);
+    mat.needsUpdate = true;
+    return;
+  }
+  if (mat.map) {
+    mat.map.needsUpdate = true;
+    if (doc.format === 'indd' && mat.map instanceof THREE.CanvasTexture) mat.map.premultiplyAlpha = false;
+  }
+  mat.needsUpdate = true;
 }
 
 /**
@@ -47,6 +127,7 @@ export class Viewport {
   private docIndex = new Map<string, number>();
   private docMeshIds = new Map<string, string[]>();
   private meshCanvas = new Map<string, HTMLCanvasElement>();
+  private meshContentEpoch = new Map<string, number>();
   private compositeMeshes = new Map<string, THREE.Mesh>();
   private compositeCanvas = new Map<string, HTMLCanvasElement>();
     private plateSerials = new Map<string, number>();
@@ -212,14 +293,19 @@ private ensureDocQuad(map: Map<string, THREE.Mesh>, docId: string): THREE.Mesh {
     this.docMeshIds.set(doc.id, meshIds);
     leaves(doc).forEach((n, i) => {
       if (!n.canvas || n.w === 0 || n.h === 0) return;
-      const tex = new THREE.CanvasTexture(n.canvas);
-      tex.colorSpace = THREE.SRGBColorSpace;
-      const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false });
+      const tex = createLeafLayerTexture(doc, n, n.canvas);
+      const mat = new THREE.MeshBasicMaterial({
+        map: tex,
+        transparent: true,
+        depthTest: false,
+        depthWrite: false,
+      });
       const mesh = new THREE.Mesh(this.geo, mat);
       mesh.renderOrder = index * 100000 + i + 1;
       this.scene.add(mesh);
       this.meshes.set(n.id, mesh);
       this.meshCanvas.set(n.id, n.canvas);
+      this.meshContentEpoch.set(n.id, n.previewContentEpoch ?? 0);
       meshIds.push(n.id);
     });
     this.syncDoc(doc);
@@ -251,31 +337,35 @@ private ensureDocQuad(map: Map<string, THREE.Mesh>, docId: string): THREE.Mesh {
       let m = this.meshes.get(n.id);
       if (!m) {
         if (!n.canvas || n.w === 0 || n.h === 0) return;
-        const tex = new THREE.CanvasTexture(n.canvas);
-        tex.colorSpace = THREE.SRGBColorSpace;
+        const tex = createLeafLayerTexture(doc, n, n.canvas);
         const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false });
         m = new THREE.Mesh(this.geo, mat);
         this.scene.add(m);
         this.meshes.set(n.id, m);
         this.meshCanvas.set(n.id, n.canvas);
+        this.meshContentEpoch.set(n.id, n.previewContentEpoch ?? 0);
         meshIds.push(n.id);
       }
       if (n.canvas && this.meshCanvas.get(n.id) !== n.canvas) {
-        // the layer's pixels were replaced (text/colour edit, undo): upload a new texture
         const mat = m.material as THREE.MeshBasicMaterial;
-        mat.map?.dispose();
-        const tex = new THREE.CanvasTexture(n.canvas);
-        tex.colorSpace = THREE.SRGBColorSpace;
-        mat.map = tex;
-        mat.needsUpdate = true;
+        syncLeafLayerTexture(doc, n, mat, n.canvas);
         this.meshCanvas.set(n.id, n.canvas);
+        this.meshContentEpoch.set(n.id, n.previewContentEpoch ?? 0);
       }
       m.renderOrder = docIdx * 100000 + i + 1;
       m.visible = effVisible(n);
       (m.material as THREE.MeshBasicMaterial).opacity = effOpacity(n);
       m.scale.set(n.w, n.h, 1);
-      m.rotation.z = (-n.rotation * Math.PI) / 180; // doc y points down, world y up
+      const meshRotDeg = meshRotationZDegrees(n);
+      m.rotation.z = (meshRotDeg * Math.PI) / 180;
       m.position.set(doc.offsetX + n.x + n.w / 2, -(doc.offsetY + n.y + n.h / 2), 0);
+      const epoch = n.previewContentEpoch ?? 0;
+      const prevEpoch = this.meshContentEpoch.get(n.id) ?? -1;
+      if (n.canvas && epoch !== prevEpoch) {
+        const mat = m.material as THREE.MeshBasicMaterial;
+        syncLeafLayerTexture(doc, n, mat, n.canvas);
+        this.meshContentEpoch.set(n.id, epoch);
+      }
     });
     this.docMeshIds.set(doc.id, meshIds);
     // layers removed from the model (deleted): hide their meshes, keep them so undo can bring them back

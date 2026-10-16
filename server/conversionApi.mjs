@@ -1,9 +1,20 @@
 import { createIndesignService } from './indesignService.mjs';
 
+const MAX_BODY_SIZE = 500 * 1024 * 1024; // 500 MB
+
 function readBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
-    req.on('data', (chunk) => chunks.push(chunk));
+    let totalSize = 0;
+    req.on('data', (chunk) => {
+      totalSize += chunk.length;
+      if (totalSize > MAX_BODY_SIZE) {
+        req.destroy();
+        reject(new Error(`Request body exceeds maximum size of ${MAX_BODY_SIZE} bytes.`));
+        return;
+      }
+      chunks.push(chunk);
+    });
     req.on('end', () => resolve(Buffer.concat(chunks)));
     req.on('error', reject);
   });
@@ -45,9 +56,7 @@ export function createConversionMiddleware(options = {}) {
     try {
       const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
 
-      // ADD — core routes inside createConversionMiddleware
       if (req.method === 'GET' && url.pathname === '/api/health') {
-        /* JSON health via service.getHealth({ queueLength, lastJob }) */
         const health = service.getHealth({ queueLength, lastJob });
         res.setHeader('Content-Type', 'application/json');
         res.statusCode = 200;
@@ -57,6 +66,12 @@ export function createConversionMiddleware(options = {}) {
 
       if (req.method === 'POST' && url.pathname === '/api/indd-to-idml') {
         const body = await readBody(req);
+        if (body.length === 0) {
+          res.statusCode = 400;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: 'Request body is empty. Provide an .indd file.' }));
+          return;
+        }
         const { bytes } = await enqueue(async () => {
           const resBytes = await service.convert('indd-to-idml', body);
           return { bytes: resBytes };
@@ -69,6 +84,12 @@ export function createConversionMiddleware(options = {}) {
 
       if (req.method === 'POST' && url.pathname === '/api/idml-to-indd') {
         const body = await readBody(req);
+        if (body.length === 0) {
+          res.statusCode = 400;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: 'Request body is empty. Provide an .idml file.' }));
+          return;
+        }
         const { bytes } = await enqueue(async () => {
           const resBytes = await service.convert('idml-to-indd', body);
           return { bytes: resBytes };

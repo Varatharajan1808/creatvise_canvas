@@ -1,13 +1,24 @@
 import { escapeHtml as esc } from './utils';
 import { type Doc, type Node, docOf, nodeBounds, walk, effVisible } from './model';
 import { isNodeSelected, selectionAffectedDocs, selectionBounds, selectionSpansDocuments, type Selection } from './selection';
-import { getTextInfo, getShapeColor, getShapeBorderInfo, getBrightnessContrastInfo, shapeColorBlockReason, rgbToHex } from './edit';
+import {
+  getTextInfo,
+  getShapeColor,
+  getShapeBorderInfo,
+  getBrightnessContrastInfo,
+  shapeColorBlockReason,
+  shapeBorderBlockReason,
+  nodeSupportsVectorFillEdit,
+  canEditShapeColorOnNode,
+  rgbToHex,
+} from './edit';
 import {
   aiPlacedImageReplaceBlockedReason,
   canDeleteLayer,
   canDuplicateLayer,
   canEditAiTextOnNode,
   canReplaceAiImageOnNode,
+  canReplaceIdmlImageOnNode,
   canReorderLayerStackStep,
   capabilitiesForDoc,
   opacityExportsToFile,
@@ -414,29 +425,34 @@ function contentSection(n: Node, doc: Doc | null): string {
     </div>`;
   }
 
-  if (n.kind === 'shape') {
-    if (caps && !caps.editShape) {
-      return `<div class="card-section"><div class="card-title">Vector Shape</div><div class="note-box">Shape editing is not available for .ai files in the browser.</div></div>`;
+  if (nodeSupportsVectorFillEdit(n) || (doc && canEditShapeColorOnNode(doc, n))) {
+    if (doc && !canEditShapeColorOnNode(doc, n)) {
+      return `<div class="card-section"><div class="card-title">Vector Shape</div><div class="note-box">Shape color editing is not available for this layer.</div></div>`;
     }
     const c = getShapeColor(n);
-    const border = getShapeBorderInfo(n);
+    const borderWhy = shapeBorderBlockReason(n);
+    const border = borderWhy ? null : getShapeBorderInfo(n);
     const why = shapeColorBlockReason(n);
-    if (why && !c) return `<div class="card-section"><div class="card-title">Vector Shape</div><div class="note-box warn">${esc(why)}</div></div>`;
+    if (why) return `<div class="card-section"><div class="card-title">Vector Shape</div><div class="note-box warn">${esc(why)}</div></div>`;
 
-    const fillHtml = c
+    const fillRgb = c ?? { r: 180, g: 180, b: 180 };
+    const fillHtml = fillRgb
       ? `<div class="card-section">
           <div class="card-title">Vector Shape Fill</div>
+          ${!c ? `<div class="note-box">No fill on import — pick a color to add one.</div>` : ''}
           <div class="field">
             <label>Fill</label>
             <div class="color-picker-wrap">
-              <input type="color" id="p-sc" value="${rgbToHex(c)}">
-              <span class="color-hex-val">${rgbToHex(c)}</span>
+              <input type="color" id="p-sc" value="${rgbToHex(fillRgb)}">
+              <span class="color-hex-val">${rgbToHex(fillRgb)}</span>
             </div>
           </div>
         </div>`
       : '';
 
-    const borderHtml = border
+    const borderHtml = borderWhy
+      ? `<div class="card-section"><div class="card-title">Shape Border (Outline)</div><div class="note-box warn">${esc(borderWhy)}</div></div>`
+      : border
       ? `<div class="card-section">
           <div class="card-title">Shape Border (Outline)</div>
           <div class="field" style="margin-bottom:10px;">
@@ -469,8 +485,9 @@ function contentSection(n: Node, doc: Doc | null): string {
 
   if (n.kind === 'raster') {
     const aiReplace = doc ? canReplaceAiImageOnNode(doc, n) : false;
+    const idmlReplace = doc ? canReplaceIdmlImageOnNode(doc, n) : false;
     const psdReplace = caps?.replaceImage ?? false;
-    if (!psdReplace && !aiReplace) {
+    if (!psdReplace && !aiReplace && !idmlReplace) {
       const reason =
         doc?.format === 'ai'
           ? aiPlacedImageReplaceBlockedReason(doc, n)
@@ -479,7 +496,9 @@ function contentSection(n: Node, doc: Doc | null): string {
     }
     const aiNote = aiReplace
       ? `<div class="note-box">Replaces the embedded PDF image in this layer (DeviceRGB FlateDecode). Placement, opacity, and transforms in the file are preserved on export.</div>`
-      : '';
+      : idmlReplace
+        ? `<div class="note-box">Replaces the linked file in the IDML package (Links/). Frame transform and link URI are preserved; image is exported as PNG.</div>`
+        : '';
     return `
       <div class="card-section">
         <div class="card-title">Image Asset</div>
@@ -632,11 +651,12 @@ export function renderProps(el: HTMLElement, state: PanelState, h: PanelHandlers
       }
     }
 
-    if (n.kind === 'shape') {
+    if (nodeSupportsVectorFillEdit(n) || (doc && canEditShapeColorOnNode(doc, n))) {
       const sc = getShapeColor(n);
       const psc = el.querySelector('#p-sc') as HTMLInputElement | null;
-      if (psc && sc && activeId !== 'p-sc') {
-        const hex = rgbToHex(sc);
+      const fillForPicker = sc ?? { r: 180, g: 180, b: 180 };
+      if (psc && fillForPicker && activeId !== 'p-sc') {
+        const hex = rgbToHex(fillForPicker);
         psc.value = hex;
         const hexSpan = psc.parentElement?.querySelector('.color-hex-val');
         if (hexSpan) hexSpan.textContent = hex;

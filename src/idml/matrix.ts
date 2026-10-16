@@ -48,3 +48,22 @@ export function parseMatrix6(str: string | null | undefined): Matrix2D {
 export function matrix6ToString(m: Matrix2D): string {
   return m.map((n) => Number(n.toFixed(6))).join(' ');
 }
+
+export function determinant6(m: Matrix2D): number {
+  return m[0] * m[3] - m[1] * m[2];
+}
+
+/** Rotation in degrees (Y-down / IDML convention). */
+export function rotationDegreesFromMatrix6(m: Matrix2D): number {
+  const [a, b] = m;
+  if (Math.abs(a) < 1e-12 && Math.abs(b) < 1e-12) return 0;
+  return (Math.atan2(b, a) * 180) / Math.PI;
+}
+
+export function uniformScaleFromMatrix6(m: Matrix2D): number {
+  const [a, b, c, d] = m;
+  const sx = Math.hypot(a, b);
+  const sy = Math.hypot(c, d);
+  if (sx < 1e-12 && sy < 1e-12) return 1;
+  return (sx + sy) / 2;
+}

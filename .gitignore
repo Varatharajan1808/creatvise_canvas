@@ -5,7 +5,8 @@ node_modules/
 dist/
 
 # Local scripts / audit artifacts (not part of the app)
-scripts/
+scripts/_*
+scripts/**/output/
 .audit-out/
 artifacts/poc/
 
@@ -14,6 +15,8 @@ artifacts/poc/
 .env.*
 .DS_Store
 Thumbs.db
+__MACOSX/
+._*
 
 # Logs
 *.log
@@ -21,4 +24,3 @@ npm-debug.log*
 
 # Editor (optional local settings)
 .vscode/
-

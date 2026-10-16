@@ -1,6 +1,7 @@
 import type { Layer } from 'ag-psd';
 import type { Doc, Kind, Node } from './model';
 import { effOpacity, isLocked, walk } from './model';
+import { canEditIdmlPosition } from './idmlEdit';
 import { isSupportedAdjustment } from './psdAdjustment';
 import { activeDropShadow, activeOuterGlow, activeStroke, enabledLayerEffectKeys, hasUnsupportedLayerEffects, SIMULATED_LAYER_EFFECT_KEYS } from './psdLayerEffects';
 
@@ -21,17 +22,24 @@ export function classifyPsdNodeKind(l: Layer, isGroup: boolean): Kind {
   return 'raster';
 }
 
+/** Whether this leaf can be moved in the canvas editor (PSD/AI vs IDML rules). */
+export function canEditLayerPosition(n: Node): boolean {
+  if (isLocked(n)) return false;
+  if (n.idml) return canEditIdmlPosition(n);
+  return canEditPsdLayerPosition(n);
+}
+
 /** Leaf nodes whose position can be changed (move tool / numeric position). */
 export function leavesForPositionEdit(n: Node): Node[] {
   if (n.kind === 'group') {
     const out: Node[] = [];
     for (const c of n.children) {
       if (c.kind === 'group') out.push(...leavesForPositionEdit(c));
-      else if (canEditPsdLayerPosition(c)) out.push(c);
+      else if (canEditLayerPosition(c)) out.push(c);
     }
     return out;
   }
-  return canEditPsdLayerPosition(n) ? [n] : [];
+  return canEditLayerPosition(n) ? [n] : [];
 }
 
 export function canEditPsdLayerPosition(n: Node): boolean {

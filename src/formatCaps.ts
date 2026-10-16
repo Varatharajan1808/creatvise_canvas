@@ -9,6 +9,7 @@ import {
 import { canReorderSiblingIndex } from './sourceTree';
 import { canEditAiLiveTextOnNode } from './aiTextEdit';
 import { canReplaceAiPlacedImageOnNode, getAiPlacedImageReplaceBlockedReason } from './aiImageEdit';
+import { canReplaceIdmlPlacedImage } from './idml/placedImage';
 
 /** Phase 1: shared UI/policy for formats that use the common `Node` editing path. */
 export type SupportedImportFormat = 'psd' | 'ai' | 'indd';
@@ -170,6 +171,11 @@ export function canReplaceAiImageOnNode(doc: Doc, n: Node): boolean {
   return doc.format === 'ai' && canReplaceAiPlacedImageOnNode(n);
 }
 
+/** IDML linked image in a graphic frame (`replaceImage` stays false globally for .indd). */
+export function canReplaceIdmlImageOnNode(doc: Doc, n: Node): boolean {
+  return (doc.format === 'indd' || Boolean(doc.idml)) && canReplaceIdmlPlacedImage(n);
+}
+
 /** User-facing reason when AI image replace is blocked on a raster layer. */
 export function aiPlacedImageReplaceBlockedReason(doc: Doc, n: Node): string {
   if (doc.format !== 'ai') {
@@ -210,7 +216,16 @@ export function formatFromFileName(name: string): Doc['format'] | null {
   if (parts.length < 2) return null;
   return formatFromExtension(parts.pop());
 }
-
+export function importErrorModalTitle(format: Doc['format']): string {
+  switch (format) {
+    case 'ai':
+      return 'AI Import Error';
+    case 'indd':
+      return 'INDD Import Error';
+    case 'psd':
+      return 'PSD Import Error';
+  }
+}
 export function unsupportedDocSubtitle(doc: Doc): string {
   if (doc.format === 'ai') {
     return 'Layers may include Illustrator/PDF features that stay read-only in the browser.';

@@ -1,5 +1,5 @@
 import type { Color, ParagraphStyleRun, TextStyle, TextStyleRun, VectorContent } from 'ag-psd';
-import type { Node } from './model';
+import type { Doc, Node } from './model';
 import {
   applyAiLiveTextEdit,
   canEditAiLiveTextOnNode,
@@ -14,9 +14,13 @@ import {
   applyIdmlText,
   getIdmlShapeColor,
   applyIdmlShapeColor,
+  getIdmlShapeBorderInfo,
+  applyIdmlShapeBorder,
+  shapeBorderBlockReason,
   serializeIdmlState,
   applyIdmlState,
 } from './idmlEdit';
+export { shapeBorderBlockReason };
 
 export interface Rgb { r: number; g: number; b: number }
 
@@ -233,13 +237,29 @@ export interface ShapeBorderInfo {
   color: Rgb;
 }
 
+/** Shape leaf or PSD vector layer stored as raster preview + vectorFill. */
+export function nodeSupportsVectorFillEdit(n: Node): boolean {
+  if (n.kind === 'shape') return true;
+  return Boolean(n.src.vectorFill && n.src.vectorFill.type === 'color');
+}
+
+/** Whether the properties panel should offer shape fill/stroke color controls for this node. */
+export function canEditShapeColorOnNode(doc: Doc, n: Node): boolean {
+  if (n.idml && n.kind === 'shape') return true;
+  if (doc.format === 'ai') return n.kind === 'shape';
+  if (doc.format === 'psd') return nodeSupportsVectorFillEdit(n);
+  return nodeSupportsVectorFillEdit(n);
+}
+
 export function getShapeColor(n: Node): Rgb | null {
   if (n.idml) return getIdmlShapeColor(n);
   const f = n.src.vectorFill;
-  return n.kind === 'shape' && f?.type === 'color' ? toRgb(f.color) : null;
+  if (!f || f.type !== 'color') return null;
+  return toRgb(f.color);
 }
 
 export function getShapeBorderInfo(n: Node): ShapeBorderInfo | null {
+  if (n.idml && n.kind === 'shape') return getIdmlShapeBorderInfo(n);
   if (n.kind !== 'shape') return null;
   const s = n.src.vectorStroke;
   const strokeColor = s?.content?.type === 'color' ? toRgb(s.content.color) : (s as any)?.color ? toRgb((s as any).color) : null;
@@ -251,11 +271,14 @@ export function getShapeBorderInfo(n: Node): ShapeBorderInfo | null {
   };
 }
 
+/**
+ * Shared fill-color gate for PSD, AI, and IDML shapes.
+ * Solid fills and no-fill shapes can be edited; gradient/pattern fills cannot.
+ */
 export function shapeColorBlockReason(n: Node): string | null {
-  if (n.kind !== 'shape') return null;
+  if (!nodeSupportsVectorFillEdit(n)) return null;
   const f = n.src.vectorFill;
-  if (!f) return 'This shape has no fill colour.';
-  if (f.type !== 'color') return 'Gradient and pattern fills cannot be edited yet.';
+  if (f && f.type !== 'color') return 'Gradient and pattern fills cannot be edited yet.';
   return null;
 }
 
@@ -367,16 +390,35 @@ export function renderShapeLayerCanvas(n: Node) {
   }
 }
 
+function recolorVectorFillOnCanvas(n: Node, hex: string): void {
+  if (!n.canvas) return;
+  const ctx = n.canvas.getContext('2d');
+  if (!ctx) return;
+  ctx.save();
+  ctx.globalCompositeOperation = 'source-in';
+  ctx.fillStyle = hex;
+  ctx.fillRect(0, 0, n.canvas.width, n.canvas.height);
+  ctx.restore();
+}
+
 export function applyShapeColor(n: Node, c: Rgb) {
   if (n.idml) {
     applyIdmlShapeColor(n, c);
     return;
   }
   n.src.vectorFill = { type: 'color', color: { ...c } };
-  renderShapeLayerCanvas(n);
+  if (n.kind === 'shape') {
+    renderShapeLayerCanvas(n);
+  } else if (n.src.vectorFill) {
+    recolorVectorFillOnCanvas(n, rgbToHex(c));
+  }
 }
 
 export function applyShapeBorder(n: Node, patch: { enabled?: boolean; width?: number; color?: Rgb }) {
+  if (n.idml && n.kind === 'shape') {
+    applyIdmlShapeBorder(n, patch);
+    return;
+  }
   if (n.kind !== 'shape') return;
   const curr = getShapeBorderInfo(n) ?? { enabled: false, width: 2, color: { r: 30, g: 30, b: 30 } };
   const enabled = patch.enabled !== undefined ? patch.enabled : curr.enabled;

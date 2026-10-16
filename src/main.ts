@@ -17,7 +17,10 @@ import {
   emptySelection,
   isNodeSelected,
   movableLeavesForSelection,
+  MARQUEE_DRAG_THRESHOLD_PX,
   moveLeavesBy,
+  nodesInMarqueeRect,
+  normalizeScreenRect,
   pointInSelectionForMoveAtScreen,
   pruneSelection,
   replaceSelection,
@@ -25,6 +28,7 @@ import {
   selectionBoundsScreen,
   selectionCanMove,
   selectionDoc,
+  selectionFromMarqueeHits,
   selectionSpansDocuments,
   singleSelection,
   snapshotPositions,
@@ -43,6 +47,7 @@ import {
   canDuplicateLayer,
   canExportDocument,
   canReplaceAiImageOnNode,
+  canReplaceIdmlImageOnNode,
   canReorderLayer,
   canReorderLayerStackStep,
   canResizeRotate,
@@ -52,6 +57,7 @@ import {
   DELETE_BLOCKED_MESSAGE,
   duplicateBlockedMessage,
   formatFromFileName,
+  importErrorModalTitle,
   RESIZE_ROTATE_BLOCKED_MESSAGE,
   unsupportedDocSubtitle,
 } from './formatCaps';
@@ -59,9 +65,11 @@ import { importDocument } from './formatImport';
 import { exportDocument, exportEditedDownloadName, exportEditedMimeType } from './formatExport';
 import { BackendError, fetchBackendHealth } from './backend';
 import { createSampleIdml, exportIdml } from './idml';
+import { rasterizeAllIdmlTextNodes } from './idml/rasterText';
 import { activeInddDoc, downloadBytes, downloadJson } from './inddImportReport';
 import { healthStateFromResponse, indesignChipLabel, indesignChipTitle } from './indesignStatus';
-import { canEditIdmlPosition, canTransformIdml, leavesForIdmlPositionEdit } from './idmlEdit';
+import { canEditIdmlPosition, canTransformIdml, leavesForIdmlPositionEdit, rasterizeIdmlTextNode } from './idmlEdit';
+import { rotationPointerAngleDeg } from './idmlRotatePointer';
 import {
   sourceIndex,
   sourceInsert,
@@ -94,7 +102,7 @@ import { closeDocCommand, openDocsCommand } from './docHistory';
 import { renderLayers, renderProps, type PanelHandlers } from './panel';
 import { saveWorkspace, loadWorkspace, clearAll } from './storage';
 import { serializeDoc, applySavedDoc, type SavedWorkspace } from './workspace';
-import { applyTextOrAiLiveText, applyShapeColor, applyShapeBorder, applyBrightnessContrast, captureState, restoreState, getTextInfo, shapeColorBlockReason, hexToRgb, type LayerState } from './edit';
+import { applyTextOrAiLiveText, applyShapeColor, applyShapeBorder, applyBrightnessContrast, captureState, restoreState, getTextInfo, shapeColorBlockReason, shapeBorderBlockReason, hexToRgb, type LayerState } from './edit';
 import { canEditAiLiveTextOnNode } from './aiTextEdit';
 import { toast, alertModal, confirmModal, promptModal, infoListModal, folderImportModal } from './popup';
 import {
@@ -299,6 +307,7 @@ function deleteNode(n: Node | null) {
   if (isLocked(n)) { toast('This layer is locked. Unlock it to delete it.', 'warning'); return; }
   selection = emptySelection();
   hist.exec(deleteCommand(doc, n));
+  flushSave();
   toast(`Deleted "${n.name}". Press Ctrl+Z to undo.`, 'info');
 }
 
@@ -596,6 +605,8 @@ function editShapeColor(n: Node, hex: string, commit: boolean) {
 
 function editShapeBorder(n: Node, patch: { enabled?: boolean; width?: number; color?: string }, commit: boolean) {
   if (n.kind !== 'shape') return;
+  const borderWhy = shapeBorderBlockReason(n);
+  if (borderWhy) { toast(borderWhy, 'warning'); return; }
   if (isLocked(n)) { toast('This layer is locked. Unlock it to edit it.', 'warning'); refresh(); return; }
   editContent(n, () => applyShapeBorder(n, {
     enabled: patch.enabled,
@@ -680,6 +691,52 @@ async function replaceImage(n: Node, file: File) {
     return;
   }
 
+  if (canReplaceIdmlImageOnNode(doc, n)) {
+    const beforeCanvas = n.canvas;
+    const beforeSrcCanvas = n.src.canvas;
+    const beforeW = n.w;
+    const beforeH = n.h;
+    const beforePlaced = n.idml?.placedImage ? structuredClone(n.idml.placedImage) : undefined;
+    try {
+      const c = await loadImageFileToCanvas(file);
+      const { applyIdmlPlacedImageReplace } = await import('./idml/placedImage');
+      await applyIdmlPlacedImageReplace(n, c, { sourceMime: file.type || undefined });
+      markNodePreviewContentChanged(n);
+      hist.exec({
+        label: 'Replace image',
+        do: () => {
+          markNodePreviewContentChanged(n);
+          syncAll();
+          refresh();
+        },
+        undo: () => {
+          n.canvas = beforeCanvas;
+          n.src.canvas = beforeSrcCanvas;
+          n.w = beforeW;
+          n.h = beforeH;
+          if (beforePlaced && n.idml) n.idml.placedImage = beforePlaced;
+          markNodePreviewContentChanged(n);
+          syncAll();
+          refresh();
+        },
+      }, true);
+      toast(`Replaced linked image in "${n.name}". Export updates Links/ in the IDML package. Press Ctrl+Z to undo.`, 'success');
+      syncAll();
+      refresh();
+    } catch (err) {
+      n.canvas = beforeCanvas;
+      n.src.canvas = beforeSrcCanvas;
+      n.w = beforeW;
+      n.h = beforeH;
+      if (beforePlaced && n.idml) n.idml.placedImage = beforePlaced;
+      syncAll();
+      refresh();
+      const msg = (err as Error).message || 'Could not load the selected image file.';
+      toast(msg, 'warning');
+    }
+    return;
+  }
+
   try {
     const c = await loadImageFileToCanvas(file);
     const beforeCanvas = n.canvas;
@@ -716,7 +773,14 @@ const normAngle = (a: number) => Math.round((((a + 180) % 360 + 360) % 360 - 180
 const MIN_SIZE = 4;
 
 function transformCommand(n: Node, before: Xform, after: Xform): Command {
-  const apply = (t: Xform) => { n.x = t.x; n.y = t.y; n.w = t.w; n.h = t.h; n.rotation = t.rotation; };
+  const apply = (t: Xform) => {
+    n.x = t.x;
+    n.y = t.y;
+    n.w = t.w;
+    n.h = t.h;
+    n.rotation = t.rotation;
+    if (n.idml && n.kind === 'text') rasterizeIdmlTextNode(n);
+  };
   return {
     label: 'Transform',
     do: () => { apply(after); psdEdited(n); },
@@ -724,12 +788,16 @@ function transformCommand(n: Node, before: Xform, after: Xform): Command {
   };
 }
 
-/** Resize/rotate is limited to image (raster) layers for now. Says why when it can't, unless quiet. */
+/** Resize/rotate: raster layers and IDML text/shapes (export patches ItemTransform). */
 function canTransform(n: Node, quiet = false): boolean {
   const no = (msg: string) => { if (!quiet) warnEditOnce(msg); return false; };
   const doc = docOf(n, docs);
   if (doc && !canResizeRotate(doc)) return no(RESIZE_ROTATE_BLOCKED_MESSAGE);
   if (n.kind === 'group') return no('Resize and rotate work on image layers. Select a layer inside the group.');
+  if (n.idml && canTransformIdml(n)) {
+    if (isLocked(n)) return no('This layer is locked. Unlock it to resize or rotate it.');
+    return true;
+  }
   if (n.kind !== 'raster') return no('Resizing and rotating text and shape layers is not supported yet.');
   if (isLocked(n)) return no('This layer is locked. Unlock it to resize or rotate it.');
   if (n.src.mask || n.src.vectorMask) return no('This layer has a mask. Resizing it would misalign the mask, so it is not supported yet.');
@@ -746,7 +814,7 @@ function canMove(n: Node): boolean {
   }
   if (leavesForPositionEdit(n).length === 0) {
     warnEditOnce(
-      n.kind === 'shape'
+      n.kind === 'shape' && !n.idml
         ? 'Moving vector shapes is not supported yet.'
         : 'This layer cannot be moved in the canvas editor.',
     );
@@ -831,6 +899,7 @@ function editTransform(n: Node, t: { w?: number; h?: number; rotation?: number }
   n.x = cx - n.w / 2;
   n.y = cy - n.h / 2;
   n.rotation = t.rotation !== undefined ? normAngle(t.rotation) : n.rotation;
+  if (n.idml && n.kind === 'text') rasterizeIdmlTextNode(n);
   psdEdited(n);
   if (!commit) {
     scheduleSceneSync();
@@ -999,6 +1068,7 @@ function scheduleSceneSync() {
   requestAnimationFrame(() => {
     sceneSyncQueued = false;
     syncAll();
+    renderProps($('props'), { docs, selection }, handlers);
     drawOverlay();
   });
 }
@@ -1070,6 +1140,7 @@ function select(n: Node | null, shiftKey = false) {
 
 const labels = $('labels');
 const selbox = $('selbox');
+const marqueeBox = $('marquee-box');
 const HANDLES: ReadonlyArray<readonly [number, number]> = [[-1, -1], [0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0]];
 HANDLES.forEach(([hx, hy]) => {
   const h = document.createElement('div');
@@ -1101,6 +1172,24 @@ function syncCanvasDots() {
   el.style.setProperty('--dot-period', `${period}px`);
   el.style.setProperty('--dot-x', `${posX}px`);
   el.style.setProperty('--dot-y', `${posY}px`);
+}
+
+function syncMarqueeOverlay(active: boolean, sx0: number, sy0: number, sx1: number, sy1: number) {
+  if (!marqueeBox) return;
+  if (!active) {
+    marqueeBox.style.display = 'none';
+    return;
+  }
+  const r = normalizeScreenRect(sx0, sy0, sx1, sy1);
+  if (r.sw < 1 && r.sh < 1) {
+    marqueeBox.style.display = 'none';
+    return;
+  }
+  marqueeBox.style.display = 'block';
+  marqueeBox.style.left = `${r.sx}px`;
+  marqueeBox.style.top = `${r.sy}px`;
+  marqueeBox.style.width = `${r.sw}px`;
+  marqueeBox.style.height = `${r.sh}px`;
 }
 
 function drawOverlay() {
@@ -1210,19 +1299,33 @@ function updateHoverHint(sx: number, sy: number) {
 
 /** Show hover hint whenever we are not mid transform (pan is OK). */
 function showHoverHintInStatus(): boolean {
-  return mode !== 'move' && mode !== 'resize' && mode !== 'rotate';
+  return mode !== 'move' && mode !== 'resize' && mode !== 'rotate' && mode !== 'marquee';
 }
 
 // ---------- pointer interaction ----------
 const stage = $('stage');
 const glEl = $('gl');
-type Mode = 'none' | 'pan' | 'move' | 'resize' | 'rotate';
+type Mode = 'none' | 'pan' | 'move' | 'resize' | 'rotate'|'marquee';
 let mode: Mode = 'none';
 let lastX = 0, lastY = 0;
 let lastLocalSx = 0;
 let lastLocalSy = 0;
 let dragBefore: Array<[Node, number, number]> | null = null;
 let moved = false;
+let marqueeStart: { sx: number; sy: number } | null = null;
+let marqueeEnd: { sx: number; sy: number } | null = null;
+let marqueeAdditive = false;
+/** Click-to-deselect on empty canvas only applies when the marquee did not start over layer content. */
+let marqueeStartedOnEmpty = false;
+ 
+function beginMarquee(sx: number, sy: number, additive: boolean, startedOnEmpty: boolean) {
+  mode = 'marquee';
+  marqueeStart = { sx, sy };
+  marqueeEnd = { sx, sy };
+  marqueeAdditive = additive;
+  marqueeStartedOnEmpty = startedOnEmpty;
+  stage.style.cursor = 'crosshair';
+}
 let spaceDown = false;
 let xf: { n: Node; before: Xform; hx: number; hy: number; angle0: number } | null = null;
 /** Plain click on one layer in a multi-selection narrows to that layer on pointer up. */
@@ -1304,7 +1407,9 @@ function applyRotate(sx: number, sy: number, shift: boolean) {
   const d = docOf(n, docs);
   if (!d) return;
   const p = vp.screenToDoc(d, sx, sy);
-  const ang = (Math.atan2(p.y - (b.y + b.h / 2), p.x - (b.x + b.w / 2)) * 180) / Math.PI;
+  const cx = b.x + b.w / 2;
+  const cy = b.y + b.h / 2;
+  const ang = rotationPointerAngleDeg(n, p.x, p.y, cx, cy);
   let r = b.rotation + (ang - xf.angle0);
   if (shift) r = Math.round(r / 15) * 15;
   n.rotation = normAngle(r);
@@ -1335,10 +1440,22 @@ stage.addEventListener('pointerdown', (e) => {
   if (hh && primary && selection.nodes.length === 1) {
     const d = docOf(primary, docs)!;
     const p = vp.screenToDoc(d, sx, sy);
-    const angle0 = (Math.atan2(p.y - (primary.y + primary.h / 2), p.x - (primary.x + primary.w / 2)) * 180) / Math.PI;
+    const angle0 = rotationPointerAngleDeg(
+      primary,
+      p.x,
+      p.y,
+      primary.x + primary.w / 2,
+      primary.y + primary.h / 2,
+    );
     xf = { n: primary, before: getX(primary), hx: hh.hx, hy: hh.hy, angle0 };
     mode = hh.type;
     stage.style.cursor = cursorFor(hh);
+    return;
+  }
+    const modSelect = e.ctrlKey || e.metaKey;
+  if (modSelect) {
+    e.preventDefault();
+    beginMarquee(sx, sy, e.shiftKey, !hitTest(sx, sy, false));
     return;
   }
   if (selection.nodes.length && selectionCanMove(selection)) {
@@ -1391,6 +1508,14 @@ stage.addEventListener('pointermove', (e) => {
     scheduleSceneSync();
     return;
   }
+  if (mode === 'marquee' && marqueeStart) {
+    marqueeEnd = { sx, sy };
+    const dist = Math.hypot(sx - marqueeStart.sx, sy - marqueeStart.sy);
+    if (dist >= MARQUEE_DRAG_THRESHOLD_PX) moved = true;
+    syncMarqueeOverlay(true, marqueeStart.sx, marqueeStart.sy, sx, sy);
+    drawOverlay();
+    return;
+  }
   if (mode === 'pan') {
     vp.panBy(dx, dy);
     updateHoverHint(sx, sy);
@@ -1423,9 +1548,24 @@ function endPointer() {
   } else if (mode === 'move' && !moved && clickSelectNarrow) {
     applySelection(replaceSelection(clickSelectNarrow));
   }
+  if (mode === 'marquee' && marqueeStart && marqueeEnd) {
+    const dist = Math.hypot(marqueeEnd.sx - marqueeStart.sx, marqueeEnd.sy - marqueeStart.sy);
+    if (moved && dist >= MARQUEE_DRAG_THRESHOLD_PX) {
+      const rect = normalizeScreenRect(marqueeStart.sx, marqueeStart.sy, marqueeEnd.sx, marqueeEnd.sy);
+      const hits = nodesInMarqueeRect(docs, rect, vpProjection);
+      applySelection(selectionFromMarqueeHits(hits, selection, marqueeAdditive));
+    } else if (!marqueeAdditive && marqueeStartedOnEmpty) {
+      applySelection(emptySelection());
+    }
+    syncMarqueeOverlay(false, 0, 0, 0, 0);
+  }
   mode = 'none';
   dragBefore = null;
   clickSelectNarrow = null;
+  marqueeStart = null;
+  marqueeEnd = null;
+  marqueeAdditive = false;
+  marqueeStartedOnEmpty = false;
   stage.style.cursor = spaceDown ? 'grab' : 'default';
   updateHoverHint(lastLocalSx, lastLocalSy);
 }
@@ -1576,7 +1716,7 @@ async function openFiles(files: FileList | File[]) {
       added.push(addDoc(await importDocument(f.name, await f.arrayBuffer(), format)));
     } catch (err) {
       alertModal({
-        title: format === 'ai' ? 'AI Import Error' : 'PSD Import Error',
+       title: importErrorModalTitle(format),
         message: `Could not import "${f.name}": ${(err as Error).message}`,
         type: 'error',
       });
@@ -1587,6 +1727,9 @@ async function openFiles(files: FileList | File[]) {
 }
 
 function mountDoc(doc: Doc) {
+  if (doc.format === 'indd') {
+    rasterizeAllIdmlTextNodes(doc);
+  }
   docs.push(doc);
   vp.addDoc(doc, docs.length - 1);
 }
@@ -1709,33 +1852,33 @@ if (btnSampleIndd) {
   };
 }
 
-const btnInddReport = $('btn-indd-debug-report');
-if (btnInddReport) {
-  btnInddReport.onclick = () => {
-    const doc = activeInddDoc() ?? docs.find((d) => d.format === 'indd');
-    if (doc?.inddImportReport) {
-      downloadJson(`${doc.name}.import-report.json`, doc.inddImportReport);
-    } else {
-      toast('No active INDD document report available.', 'warning');
-    }
-  };
-}
+// const btnInddReport = $('btn-indd-debug-report');
+// if (btnInddReport) {
+//   btnInddReport.onclick = () => {
+//     const doc = activeInddDoc() ?? docs.find((d) => d.format === 'indd');
+//     if (doc?.inddImportReport) {
+//       downloadJson(`${doc.name}.import-report.json`, doc.inddImportReport);
+//     } else {
+//       toast('No active INDD document report available.', 'warning');
+//     }
+//   };
+// }
 
-const btnInddIdml = $('btn-indd-debug-idml');
-if (btnInddIdml) {
-  btnInddIdml.onclick = async () => {
-    const doc = activeInddDoc() ?? docs.find((d) => d.format === 'indd');
-    if (doc) {
-      try {
-        const idmlBytes = await exportIdml(doc);
-        downloadBytes(`${doc.name.replace(/\.(indd|idml)$/i, '')}.edited.idml`, idmlBytes, 'application/vnd.adobe.indesign-idml-package');
-        toast('Downloaded IDML package.', 'success');
-      } catch (err) {
-        toast(`Failed to export IDML: ${(err as Error).message}`, 'error');
-      }
-    }
-  };
-}
+// const btnInddIdml = $('btn-indd-debug-idml');
+// if (btnInddIdml) {
+//   btnInddIdml.onclick = async () => {
+//     const doc = activeInddDoc() ?? docs.find((d) => d.format === 'indd');
+//     if (doc) {
+//       try {
+//         const idmlBytes = await exportIdml(doc);
+//         downloadBytes(`${doc.name.replace(/\.(indd|idml)$/i, '')}.edited.idml`, idmlBytes, 'application/vnd.adobe.indesign-idml-package');
+//         toast('Downloaded IDML package.', 'success');
+//       } catch (err) {
+//         toast(`Failed to export IDML: ${(err as Error).message}`, 'error');
+//       }
+//     }
+//   };
+// }
 
 $('btn-undo').onclick = () => hist.undo();
 $('btn-redo').onclick = () => hist.redo();
@@ -1861,9 +2004,10 @@ if (btnShortcuts) {
       title: 'Keyboard Shortcuts & Canvas Controls',
       subtitle: 'Fast productivity tips for Creatvise Canvas',
       items: [
-        { label: 'Pan Canvas', tag: 'Navigation', text: 'Hold Spacebar and drag canvas with mouse, or Middle-click drag' },
+        { label: 'Pan Canvas', tag: 'Navigation', text: 'Drag empty canvas, hold Spacebar and drag, or middle-click drag' },
         { label: 'Zoom Viewport', tag: 'Navigation', text: 'Mouse wheel scroll to zoom, or use floating controls bottom-right' },
         { label: 'Select Layer', tag: 'Editing', text: 'Click directly on layer pixel on canvas, or click in Layers panel' },
+        { label: 'Marquee Select', tag: 'Editing', text: 'Ctrl+drag (Cmd+drag on Mac) on the canvas — layers intersecting the box are selected. Ctrl+Shift+drag adds to the selection.' },
         { label: 'Move Layer', tag: 'Editing', text: 'Click & drag selected layer on the canvas stage' },
         { label: 'Transform Layer', tag: 'Editing', text: 'Drag selection boundary handles to resize, top handle to rotate' },
         { label: 'Proportional Resize', tag: 'Modifier', text: 'Hold Shift while dragging corner handles' },
@@ -1925,6 +2069,15 @@ function scheduleSave() {
   setSaveState('pending');
   clearTimeout(saveTimer);
   saveTimer = window.setTimeout(() => void doSave(), 600);
+}
+
+/** Persist immediately (e.g. after delete) so a quick refresh does not restore stale layers. */
+function flushSave() {
+  if (!persistReady || persistOff) return;
+  dirty = true;
+  clearTimeout(saveTimer);
+  saveTimer = 0;
+  void doSave();
 }
 
 async function doSave() {
@@ -2018,7 +2171,18 @@ $('btn-clear').onclick = async () => {
   window.location.reload();
 };
 
-window.addEventListener('pagehide', () => { if (dirty && persistReady && !persistOff) void doSave(); });
+window.addEventListener('pagehide', () => {
+  if (dirty && persistReady && !persistOff) {
+    clearTimeout(saveTimer);
+    void doSave();
+  }
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden' && dirty && persistReady && !persistOff) {
+    clearTimeout(saveTimer);
+    void doSave();
+  }
+});
 
 // ---------- boot ----------
 function dismissLoader() {

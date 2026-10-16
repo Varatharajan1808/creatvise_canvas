@@ -1,11 +1,16 @@
 export interface BackendHealthResponse {
   ok: boolean;
-  status: 'online' | 'offline' | 'starting' | 'converting' | 'not-found' | string;
+  status: 'online' | 'offline' | 'starting' | 'converting' | 'not-found' | 'degraded' | string;
   installed?: boolean;
   version?: string | null;
+  path?: string | null;
+  comAvailable?: boolean;
+  comVersion?: string | null;
+  canConvert?: boolean;
   queueLength?: number;
   lastJob?: unknown;
   detail?: string;
+  diagnostics?: string[];
 }
 
 export class BackendError extends Error {

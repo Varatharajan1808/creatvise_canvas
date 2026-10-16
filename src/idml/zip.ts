@@ -16,11 +16,14 @@ export async function writeIdmlPackage(zip: JSZip): Promise<ArrayBuffer> {
     const entry = zip.files[name];
     if (!entry || entry.dir) continue;
     const data = await entry.async('uint8array');
-    if (name === 'mimetype') {
-      outZip.file(name, data, { compression: 'STORE' });
-    } else {
-      outZip.file(name, data, { compression: 'DEFLATE', compressionOptions: { level: 6 } });
-    }
+    const fileOpts = {
+      // InDesign IDML packages omit implicit folder entries; extra dirs break open/save fidelity.
+      createFolders: false as const,
+      ...(name === 'mimetype'
+        ? { compression: 'STORE' as const }
+        : { compression: 'DEFLATE' as const, compressionOptions: { level: 6 } }),
+    };
+    outZip.file(name, data, fileOpts);
   }
 
   const uint8 = await outZip.generateAsync({

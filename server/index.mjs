@@ -1,5 +1,8 @@
 import http from 'node:http';
+import { loadIndesignEnv } from './loadIndesignEnv.mjs';
 import { createConversionMiddleware } from './conversionApi.mjs';
+
+loadIndesignEnv();
 
 const PORT = Number(process.env.PORT || 3000);
 const middleware = createConversionMiddleware({ log: (m) => console.log(m) });

@@ -1,3 +1,4 @@
+import { loadIndesignEnv } from '../server/loadIndesignEnv.mjs';
 import { createConversionMiddleware } from '../server/conversionApi.mjs';
 
 export function viteIndesignPlugin() {
@@ -5,6 +6,7 @@ export function viteIndesignPlugin() {
   return {
     name: 'vite-indesign-api',
     configureServer(server) {
+      loadIndesignEnv();
       middleware = createConversionMiddleware({ log: (m) => console.log(m) });
       server.middlewares.use(middleware);
       middleware.startWarmUp();

@@ -1162,6 +1162,17 @@ input[type=number] {
   pointer-events: none;
 }
 
+#marquee-box {
+  position: absolute;
+  display: none;
+  box-sizing: border-box;
+  border: 1px solid rgba(79, 107, 255, 0.95);
+  background: rgba(79, 107, 255, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  pointer-events: none;
+  z-index: 1;
+}
+
 #selbox {
   position: absolute;
   display: none;

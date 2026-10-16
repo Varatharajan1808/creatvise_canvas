@@ -25,15 +25,17 @@
     "test:psd:stroke-browser": "node scripts/psd-stroke-browser.test.mjs",
     "test:psd:adjustment": "tsx scripts/psd-adjustment-edit.test.ts",
     "test:psd:adjustment-browser": "node scripts/psd-brightness-browser.test.mjs",
-    "test:formats": "tsx scripts/format-registry.test.ts",
+     "test:formats": "tsx scripts/format-registry.test.ts && tsx scripts/marquee-select.test.ts && tsx scripts/color-edit-cross-format.test.ts",
     "test:ai:shapes": "tsx scripts/ai-shape-export.test.ts",
     "test:all": "npm run build && npm run test:formats && npm run test:folder && npm run test:ai && npm run test:ai:shapes && npm run test:psd",
     "poc:idml:a": "tsx scripts/poc/poc-a-idml-roundtrip.test.ts",
     "poc:indd:b": "tsx scripts/poc/poc-b-orchestrator.ts",
     "server": "node server/index.mjs",
     "check:indesign": "tsx scripts/check-indesign.mjs",
-    "test:idml": "tsx scripts/fixtures/write-sample-creatvise.ts && tsx scripts/idml-roundtrip.test.ts && tsx scripts/idml-smoke.test.ts && tsx scripts/idml-import-skip.test.ts && tsx scripts/sample-creatvise.test.ts",
-    "test:indesign": "tsx scripts/indesign-middleware.test.ts && tsx scripts/indesign-health.test.ts && tsx scripts/indesign-status.test.ts"
+    "compare:idml": "tsx scripts/idml-package-compare.mjs",
+    "test:idml": "tsx scripts/fixtures/write-sample-creatvise.ts && tsx scripts/idml-roundtrip.test.ts && tsx scripts/idml-export-fidelity.test.ts && tsx scripts/idml-delete-persist.test.ts && tsx scripts/idml-shape-fill-export.test.ts && tsx scripts/idml-shape-stroke-export.test.ts && tsx scripts/idml-placed-image.test.ts && tsx scripts/idml-swatches-export.test.ts && tsx scripts/idml-typography-export.test.ts && tsx scripts/idml-transform-export.test.ts && tsx scripts/idml-rotation-geometry.test.ts && tsx scripts/idml-rotate-interaction.test.ts && tsx scripts/idml-links-export.test.ts && tsx scripts/idml-smoke.test.ts && tsx scripts/sample-creatvise.test.ts && tsx scripts/idml-import-skip.test.ts && tsx scripts/idml-swatches.test.ts && tsx scripts/idml-transform.test.ts && tsx scripts/idml-multipage.test.ts && tsx scripts/idml-magazine-regression.test.ts && tsx scripts/idml-magazine-typography.test.ts && tsx scripts/idml-text-layout.test.ts && tsx scripts/idml-text-sharp.test.ts && tsx scripts/idml-shape-move.test.ts && tsx scripts/idml-magazine-composite.test.ts && tsx scripts/idml-text-orientation.test.ts && tsx scripts/idml-text-import.test.ts && tsx scripts/idml-text-position.test.ts && tsx scripts/idml-text-hit-test.test.ts && tsx scripts/idml-text-raster.test.ts && tsx scripts/idml-text-pixel.test.ts && tsx scripts/idml-text-e2e-pixel.test.ts",
+    "test:idml:viewport": "node scripts/idml-text-viewport.test.mjs",
+    "test:indesign": "tsx scripts/indesign-middleware.test.ts && tsx scripts/indesign-health.test.ts && tsx scripts/indesign-status.test.ts && tsx scripts/indesign-discover.test.ts && tsx scripts/poc/poc-b-indesign.test.ts && tsx scripts/poc/run-indesign-script.test.ts && tsx scripts/indesign-conversion-api.test.ts && tsx scripts/idml-indesign-roundtrip.test.ts"
   },
   "dependencies": {
     "ag-psd": "^31.0.3",

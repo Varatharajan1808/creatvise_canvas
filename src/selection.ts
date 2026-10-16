@@ -1,6 +1,6 @@
 import type { Doc, Node, Rect } from './model';
-import { docOf, nodeBounds } from './model';
-import { isPointInGroupBounds } from './canvasHitTest';
+import { docOf, effOpacity, effVisible, isLocked, leaves, nodeBounds, walk } from './model';
+import { isCanvasPickTarget, isPointInGroupBounds, isPsdGroupCanvasSelectable } from './canvasHitTest';
 import { leavesForPositionEdit } from './psdLayerInfo';
 
 /**
@@ -272,3 +272,105 @@ export function pointInSelectionForMoveAtScreen(
 export function selectionCanMove(sel: Selection): boolean {
   return movableLeavesForSelection(sel).length > 0;
 }
+/** Minimum pointer travel (screen px) before a marquee replaces click-to-deselect. */
+export const MARQUEE_DRAG_THRESHOLD_PX = 4;
+ 
+export function normalizeScreenRect(sx0: number, sy0: number, sx1: number, sy1: number): ScreenRect {
+  const x1 = Math.min(sx0, sx1);
+  const y1 = Math.min(sy0, sy1);
+  const x2 = Math.max(sx0, sx1);
+  const y2 = Math.max(sy0, sy1);
+  return { sx: x1, sy: y1, sw: x2 - x1, sh: y2 - y1 };
+}
+ 
+export function screenRectsIntersect(a: ScreenRect, b: ScreenRect): boolean {
+  if (a.sw <= 0 || a.sh <= 0 || b.sw <= 0 || b.sh <= 0) return false;
+  return a.sx < b.sx + b.sw && a.sx + a.sw > b.sx && a.sy < b.sy + b.sh && a.sy + a.sh > b.sy;
+}
+ 
+function isMarqueeCandidate(d: Doc, n: Node): boolean {
+  if (!effVisible(n) || isLocked(n) || effOpacity(n) <= 0) return false;
+  if (n.kind === 'group') return isPsdGroupCanvasSelectable(d, n);
+  if (!isCanvasPickTarget(d, n)) return false;
+  const b = nodeBounds(n);
+  return !!(b && b.w > 0 && b.h > 0);
+}
+ 
+function leafIdsUnderGroup(root: Node): Set<string> {
+  const ids = new Set<string>();
+  if (root.kind !== 'group') return ids;
+  for (const n of walk(root.children)) {
+    if (n.kind !== 'group') ids.add(n.id);
+  }
+  return ids;
+}
+ 
+/**
+ * All canvas-selectable layers whose screen bounds intersect the marquee (every open document).
+ * Returns hits top-first (frontmost last in array); use `selectionFromMarqueeHits` for panel order.
+ */
+export function nodesInMarqueeRect(
+  docs: Doc[],
+  marquee: ScreenRect,
+  proj: ScreenProjection,
+): Node[] {
+  if (marquee.sw <= 0 || marquee.sh <= 0) return [];
+  const hitsTopFirst: Node[] = [];
+  const seen = new Set<string>();
+ 
+  for (let di = docs.length - 1; di >= 0; di--) {
+    const d = docs[di]!;
+    const docGroupHits: Node[] = [];
+    for (const n of walk(d.roots)) {
+      if (n.kind !== 'group') continue;
+      if (!isMarqueeCandidate(d, n)) continue;
+      const aabb = nodeScreenAabb(n, d, proj);
+      if (!aabb || !screenRectsIntersect(marquee, aabb)) continue;
+      docGroupHits.push(n);
+    }
+    for (const g of docGroupHits) {
+      if (seen.has(g.id)) continue;
+      seen.add(g.id);
+      hitsTopFirst.push(g);
+    }
+ 
+    const skipLeafIds = new Set<string>();
+    for (const g of docGroupHits) {
+      for (const id of leafIdsUnderGroup(g)) skipLeafIds.add(id);
+    }
+ 
+    const leafList = leaves(d).slice().reverse();
+    for (const n of leafList) {
+      if (skipLeafIds.has(n.id)) continue;
+      if (!isMarqueeCandidate(d, n)) continue;
+      const aabb = nodeScreenAabb(n, d, proj);
+      if (!aabb || !screenRectsIntersect(marquee, aabb)) continue;
+      if (seen.has(n.id)) continue;
+      seen.add(n.id);
+      hitsTopFirst.push(n);
+    }
+  }
+  return hitsTopFirst;
+}
+ 
+/** Build selection from marquee hits (`hits` top-first from `nodesInMarqueeRect`). */
+export function selectionFromMarqueeHits(
+  hitsTopFirst: Node[],
+  prior: Selection,
+  additive: boolean,
+): Selection {
+  if (!hitsTopFirst.length) {
+    return additive ? prior : emptySelection();
+  }
+  const bottomToTop = [...hitsTopFirst].reverse();
+  const primary = hitsTopFirst[0]!;
+  if (!additive) {
+    return { primary, nodes: bottomToTop };
+  }
+  let nodes = [...prior.nodes];
+  for (const n of bottomToTop) {
+    if (!nodes.some((x) => x.id === n.id)) nodes.push(n);
+  }
+  return { primary, nodes };
+}
+ 
