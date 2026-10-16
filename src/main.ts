@@ -2063,6 +2063,8 @@ function viewChanged(): boolean {
   return v.cx !== lastView.cx || v.cy !== lastView.cy || v.zoom !== lastView.zoom;
 }
 
+let savePendingFlush = false;
+
 function scheduleSave() {
   if (!persistReady || persistOff) return;
   dirty = true;
@@ -2072,17 +2074,23 @@ function scheduleSave() {
 }
 
 /** Persist immediately (e.g. after delete) so a quick refresh does not restore stale layers. */
-function flushSave() {
-  if (!persistReady || persistOff) return;
+function flushSave(): Promise<void> {
+  if (!persistReady || persistOff) return Promise.resolve();
   dirty = true;
+  savePendingFlush = true;
   clearTimeout(saveTimer);
   saveTimer = 0;
-  void doSave();
+  return doSave();
 }
 
-async function doSave() {
-  if (saving || !dirty || !persistReady || persistOff) return;
+async function doSave(): Promise<void> {
+  if (saving) {
+    savePendingFlush = true;
+    return;
+  }
+  if (!dirty || !persistReady || persistOff) return;
   saving = true;
+  savePendingFlush = false;
   dirty = false;
   setSaveState('saving');
   try {
@@ -2101,9 +2109,16 @@ async function doSave() {
       warnedSaveFailure = true;
       toast("Couldn't save your work in this browser. Export files to keep them.", 'error');
     }
+  } finally {
+    saving = false;
   }
-  saving = false;
-  if (dirty && !warnedSaveFailure) scheduleSave();
+  if (dirty && !warnedSaveFailure) {
+    if (savePendingFlush) {
+      void doSave();
+    } else {
+      scheduleSave();
+    }
+  }
 }
 
 async function restoreWorkspace() {

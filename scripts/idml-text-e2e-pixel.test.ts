@@ -28,7 +28,10 @@ const log = (name: string, ok: boolean, detail: string) => {
 };
 
 async function main() {
-  const path = process.argv[2] ?? 'artifacts/poc/poc-b/step1-exported.idml';
+  const defaultPath = fs.existsSync('artifacts/poc/poc-b/step1-exported.idml')
+    ? 'artifacts/poc/poc-b/step1-exported.idml'
+    : 'artifacts/fixtures/sample-creatvise.idml';
+  const path = process.argv[2] ?? defaultPath;
   const buf = fs.readFileSync(path);
   const imported = await importIdml('e2e.idml', buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
   rasterizeAllIdmlTextNodes(imported);

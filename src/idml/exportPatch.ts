@@ -420,6 +420,7 @@ function pageItemLocalName(el: Element): string {
 export function pruneSpreadPageItemsNotInModel(
   spreadXml: string,
   liveSelves: ReadonlySet<string>,
+  importedSelves?: ReadonlySet<string>,
 ): string {
   const parsed = new DOMParser().parseFromString(spreadXml, 'text/xml');
   const all = parsed.getElementsByTagName('*');
@@ -428,7 +429,11 @@ export function pruneSpreadPageItemsNotInModel(
     const tag = pageItemLocalName(el);
     if (!SPREAD_PAGE_ITEM_LEAF.test(tag)) continue;
     const self = el.getAttribute('Self') ?? '';
-    if (self && !liveSelves.has(self)) el.parentNode?.removeChild(el);
+    if (!self) continue;
+    const shouldPrune = importedSelves
+      ? importedSelves.has(self) && !liveSelves.has(self)
+      : !liveSelves.has(self);
+    if (shouldPrune) el.parentNode?.removeChild(el);
   }
   return serializeSpreadDocument(parsed, spreadXml);
 }

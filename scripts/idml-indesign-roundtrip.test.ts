@@ -40,8 +40,8 @@ async function layoutStats(idmlBuf: ArrayBuffer) {
 async function main() {
   const install = discoverIndesign();
   const inddPath = path.join('artifacts', 'fixtures', 'free_317277841', 'free_317277841.indd');
-  if (!install.canConvert || !fs.existsSync(inddPath)) {
-    log('indesign-roundtrip', true, 'skipped — no InDesign or fixture');
+  if (!install.canConvert || !fs.existsSync(inddPath) || (process.platform === 'win32' && !install.comAvailable)) {
+    log('indesign-roundtrip', true, 'skipped — InDesign COM or fixture unavailable');
     return;
   }
 

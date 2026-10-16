@@ -67,11 +67,14 @@ function hitAtScreen(
 }
 
 async function main() {
-  const pocPath = path.join('artifacts', 'poc', 'poc-b', 'step1-exported.idml');
+  const pocCandidate = path.join('artifacts', 'poc', 'poc-b', 'step1-exported.idml');
+  const sampleCandidate = path.join('artifacts', 'fixtures', 'sample-creatvise.idml');
+  const pocPath = fs.existsSync(pocCandidate) ? pocCandidate : sampleCandidate;
   if (!fs.existsSync(pocPath)) {
-    log('poc-fixture', false, 'missing step1-exported.idml');
+    log('poc-fixture', false, `missing ${pocPath}`);
     process.exit(1);
   }
+  log('fixture-loaded', true, pocPath);
   const buf = fs.readFileSync(pocPath);
   const doc = await importIdml(
     'hit.idml',

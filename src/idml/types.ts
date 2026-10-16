@@ -120,10 +120,32 @@ export interface IdmlPlacedImageMeta {
   pendingPackagePath?: string;
 }
 
+export interface IdmlSavedLayerState {
+  fillColor?: string;
+  exportFillDirty?: boolean;
+  strokeColor?: string;
+  strokeSwatchRef?: string;
+  strokeWeight?: number;
+  strokeEnabled?: boolean;
+  exportStrokeDirty?: boolean;
+  exportStrokeSettingsDirty?: boolean;
+  storyJustification?: string;
+  exportRotation?: number;
+  placedImage?: {
+    replacementBytes?: Uint8Array;
+    replacementFormat?: IdmlLinkImageFormat;
+    exportLinkDirty?: boolean;
+    pendingPackagePath?: string;
+    pendingLinkResourceUri?: string;
+    exportLinkUriDirty?: boolean;
+    missingLink?: boolean;
+  };
+}
+
 export interface IdmlDocBacking {
   readonly kind: 'idml';
   rawZipBytes: ArrayBuffer;
-  spreads: Array<{ path: string; xml: string; layout?: IdmlSpreadLayout }>;
+  spreads: Array<{ path: string; xml: string; layout?: IdmlSpreadLayout; importedSelves?: Set<string> }>;
   stories: Map<string, string>; // storyId -> xml
   designmapXml?: string;
   graphicXml?: string;
@@ -132,3 +154,4 @@ export interface IdmlDocBacking {
   pages: Array<{ id: string; width: number; height: number; docY: number; pageSelf?: string; spreadPath?: string }>;
   spreadLayout?: IdmlSpreadLayout;
 }
+

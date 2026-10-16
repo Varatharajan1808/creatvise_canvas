@@ -806,7 +806,7 @@ export async function importIdml(name: string, bytes: ArrayBuffer, origin: 'indd
       .sort();
   }
 
-  const spreadsData: Array<{ path: string; xml: string; layout?: IdmlSpreadLayout }> = [];
+  const spreadsData: IdmlDocBacking['spreads'] = [];
   const roots: Node[] = [];
   const docPages: IdmlDocBacking['pages'] = [];
   const spreadPageSlots = new Map<string, IdmlPageImportSlot[]>();
@@ -867,17 +867,23 @@ export async function importIdml(name: string, bytes: ArrayBuffer, origin: 'indd
   docHeight = Math.max(1, docStackY);
   if (docWidth <= 0) docWidth = 612;
 
-  for (const spreadPath of spreadFiles) {
-    const entry = zip.file(spreadPath);
+  for (const spreadInfo of spreadsData) {
+    const entry = zip.file(spreadInfo.path);
     if (!entry) continue;
-    const xml = await entry.async('string');
+    const xml = spreadInfo.xml;
     const spreadDoc = parseXml(xml);
     const spreadEl = spreadContainerElement(spreadDoc);
     if (!spreadEl) continue;
-    const slots = spreadPageSlots.get(spreadPath);
+    const slots = spreadPageSlots.get(spreadInfo.path);
     if (!slots?.length) continue;
     const spreadM = parseMatrix6(spreadEl.getAttribute('ItemTransform'));
-    appendSpreadPageItems(spreadEl, spreadM, roots, slots, stories, spreadPath, resources);
+    const beforeCount = roots.length;
+    appendSpreadPageItems(spreadEl, spreadM, roots, slots, stories, spreadInfo.path, resources);
+    const importedSelves = new Set<string>();
+    for (let i = beforeCount; i < roots.length; i++) {
+      if (roots[i].idml?.self) importedSelves.add(roots[i].idml!.self);
+    }
+    spreadInfo.importedSelves = importedSelves;
   }
 
   const backing: IdmlDocBacking = {
@@ -943,9 +949,12 @@ export async function exportIdml(doc: Doc): Promise<ArrayBuffer> {
       spreadXml = patchSpreadXmlForNodes(spreadXml, nodes);
     }
     const liveSelves = liveIdmlSelvesOnSpread(doc, spreadInfo.path);
-    const importCount = (spreadInfo.xml.match(/<(TextFrame|Rectangle|Oval|Polygon)\b/gi) || []).length;
-    if (liveSelves.size < importCount) {
-      spreadXml = pruneSpreadPageItemsNotInModel(spreadXml, liveSelves);
+    const importedSelves = spreadInfo.importedSelves;
+    const hasDeletions = importedSelves
+      ? [...importedSelves].some((s) => !liveSelves.has(s))
+      : liveSelves.size < (spreadInfo.xml.match(/<(TextFrame|Rectangle|Oval|Polygon)\b/gi) || []).length;
+    if (hasDeletions) {
+      spreadXml = pruneSpreadPageItemsNotInModel(spreadXml, liveSelves, importedSelves);
     }
     if (spreadXml !== spreadXmlOriginal) zip.file(spreadInfo.path, spreadXml);
   }

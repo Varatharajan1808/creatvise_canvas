@@ -1,13 +1,17 @@
 import type { Node, Doc } from './model';
 import { leaves } from './model';
 import type { TextInfo, Rgb, SavedLayerState, ShapeBorderInfo } from './edit';
-import { hexToRgb, rgbToHex } from './edit';
+import { hexToRgb, rgbToHex, toRgb } from './edit';
 import { rasterizeIdmlTextNode as rasterizeIdmlTextImpl } from './idml/rasterText';
 import { plotPathInItemLocalCanvas } from './idml';
+import { renderPlacedImagePreview } from './idml/placedImage';
+import type { IdmlSavedLayerState, IdmlLinkImageFormat } from './idml/types';
 import {
   canvasAlignmentToIdmlJustification,
   idmlJustificationToCanvasAlignment,
 } from './idml/storyExport';
+
+export type { IdmlSavedLayerState };
 
 export function canTransformIdml(n: Node): boolean {
   return Boolean(n.idml && n.idml.itemTransform);
@@ -214,8 +218,14 @@ export function applyShapeColor(n: Node, c: Rgb): void {
 export const applyIdmlShapeColor = applyShapeColor;
 
 export function serializeIdmlState(n: Node): SavedLayerState {
+  const pi = n.idml?.placedImage;
   return {
-    text: n.src?.text ? { text: n.src.text.text, style: n.src.text.style } : undefined,
+    text: n.src?.text
+      ? {
+          text: n.src.text.text,
+          style: n.src.text.style ? { ...n.src.text.style } : undefined,
+        }
+      : undefined,
     vectorFill: n.src?.vectorFill,
     vectorStroke: n.src?.vectorStroke,
     adjustment: undefined,
@@ -228,9 +238,34 @@ export function serializeIdmlState(n: Node): SavedLayerState {
     oy: n.oy,
     ow: n.ow,
     oh: n.oh,
-    textTransform: n.textTransform,
+    textTransform: n.textTransform ? [...n.textTransform] : undefined,
     textEdited: n.textEdited,
     previewContentEpoch: n.previewContentEpoch,
+    idml: n.idml
+      ? {
+          fillColor: n.idml.fillColor,
+          exportFillDirty: n.idml.exportFillDirty,
+          strokeColor: n.idml.strokeColor,
+          strokeSwatchRef: n.idml.strokeSwatchRef,
+          strokeWeight: n.idml.strokeWeight,
+          strokeEnabled: n.idml.strokeEnabled,
+          exportStrokeDirty: n.idml.exportStrokeDirty,
+          exportStrokeSettingsDirty: n.idml.exportStrokeSettingsDirty,
+          storyJustification: n.idml.storyJustification,
+          exportRotation: n.idml.exportRotation,
+          placedImage: pi?.replacementBytes
+            ? {
+                replacementBytes: pi.replacementBytes,
+                replacementFormat: pi.replacementFormat,
+                exportLinkDirty: pi.exportLinkDirty,
+                pendingPackagePath: pi.pendingPackagePath,
+                pendingLinkResourceUri: pi.pendingLinkResourceUri,
+                exportLinkUriDirty: pi.exportLinkUriDirty,
+                missingLink: pi.missingLink,
+              }
+            : undefined,
+        }
+      : undefined,
   };
 }
 
@@ -245,14 +280,61 @@ export function applyIdmlState(n: Node, s: SavedLayerState): void {
   n.ow = s.ow;
   n.oh = s.oh;
   n.textEdited = s.textEdited;
+
+  if (n.idml && s.idml) {
+    if (s.idml.fillColor !== undefined) n.idml.fillColor = s.idml.fillColor;
+    if (s.idml.exportFillDirty !== undefined) n.idml.exportFillDirty = s.idml.exportFillDirty;
+    if (s.idml.strokeColor !== undefined) n.idml.strokeColor = s.idml.strokeColor;
+    if (s.idml.strokeSwatchRef !== undefined) n.idml.strokeSwatchRef = s.idml.strokeSwatchRef;
+    if (s.idml.strokeWeight !== undefined) n.idml.strokeWeight = s.idml.strokeWeight;
+    if (s.idml.strokeEnabled !== undefined) n.idml.strokeEnabled = s.idml.strokeEnabled;
+    if (s.idml.exportStrokeDirty !== undefined) n.idml.exportStrokeDirty = s.idml.exportStrokeDirty;
+    if (s.idml.exportStrokeSettingsDirty !== undefined) {
+      n.idml.exportStrokeSettingsDirty = s.idml.exportStrokeSettingsDirty;
+    }
+    if (s.idml.storyJustification !== undefined) n.idml.storyJustification = s.idml.storyJustification;
+    if (s.idml.exportRotation !== undefined) n.idml.exportRotation = s.idml.exportRotation;
+
+    if (n.idml.placedImage && s.idml.placedImage) {
+      const spi = s.idml.placedImage;
+      const pi = n.idml.placedImage;
+      if (spi.replacementBytes) {
+        pi.replacementBytes = spi.replacementBytes;
+        pi.replacementFormat = spi.replacementFormat;
+        pi.exportLinkDirty = spi.exportLinkDirty ?? true;
+        pi.pendingPackagePath = spi.pendingPackagePath;
+        pi.pendingLinkResourceUri = spi.pendingLinkResourceUri;
+        pi.exportLinkUriDirty = spi.exportLinkUriDirty;
+        pi.missingLink = spi.missingLink ?? false;
+      }
+    }
+  }
+
   if (s.text && n.src?.text) {
     n.src.text.text = s.text.text;
-    n.src.text.style = s.text.style;
-    applyText(n, { text: s.text.text });
+    if (s.text.style) n.src.text.style = { ...s.text.style };
+    const patch: Parameters<typeof applyText>[1] = { text: s.text.text };
+    if (s.text.style) {
+      if (s.text.style.fontSize) patch.fontSize = s.text.style.fontSize;
+      if (s.text.style.font?.name) patch.fontFamily = s.text.style.font.name;
+      if (s.text.style.fauxBold !== undefined) patch.bold = s.text.style.fauxBold;
+      if (s.text.style.fauxItalic !== undefined) patch.italic = s.text.style.fauxItalic;
+      if (s.text.style.fillColor) {
+        const rgb = toRgb(s.text.style.fillColor);
+        if (rgb) patch.color = rgb;
+      }
+    }
+    if (s.idml?.storyJustification) {
+      patch.alignment = idmlJustificationToCanvasAlignment(s.idml.storyJustification);
+    }
+    applyText(n, patch);
+    n.textEdited = s.textEdited;
   }
+
   if (s.vectorFill && s.vectorFill.type === 'color') {
     applyShapeColor(n, s.vectorFill.color as unknown as Rgb);
   }
+
   if (s.vectorStroke && n.idml) {
     const vs = s.vectorStroke as {
       strokeEnabled?: boolean;
@@ -264,5 +346,9 @@ export function applyIdmlState(n: Node, s: SavedLayerState): void {
       width: typeof vs.lineWidth?.value === 'number' ? vs.lineWidth.value : undefined,
       color: vs.content?.type === 'color' ? vs.content.color : undefined,
     });
+  }
+
+  if (n.idml?.placedImage?.replacementBytes && n.kind === 'raster') {
+    void renderPlacedImagePreview(n, n.idml.placedImage.replacementBytes);
   }
 }

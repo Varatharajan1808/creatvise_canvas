@@ -19,6 +19,7 @@ import {
   shapeBorderBlockReason,
   serializeIdmlState,
   applyIdmlState,
+  type IdmlSavedLayerState,
 } from './idmlEdit';
 export { shapeBorderBlockReason };
 
@@ -463,6 +464,7 @@ export interface LayerState {
   aiImage?: AiImageUndoState;
   aiImageEdited?: boolean;
   previewContentEpoch?: number;
+  idml?: IdmlSavedLayerState;
 }
 
 export function captureState(n: Node): LayerState {
@@ -484,6 +486,7 @@ export function captureState(n: Node): LayerState {
     aiImage: captureAiImageState(n),
     aiImageEdited: n.aiImageEdited,
     previewContentEpoch: n.previewContentEpoch,
+    idml: n.idml ? serializeIdmlState(n).idml : undefined,
   };
 }
 
